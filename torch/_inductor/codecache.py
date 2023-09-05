@@ -805,10 +805,14 @@ def get_include_and_linking_paths(
             else:
                 macros = f"-D{macros}"
         if cuda:
-            if config.is_fbcode():
-                libs += ["cuda"]
+            if torch.version.hip is not None:
+                libs += ["c10_hip", "torch_hip"]
+                macros += " -D __HIP_PLATFORM_AMD__"
             else:
-                libs += ["c10_cuda", "cuda", "torch_cuda"]
+                if config.is_fbcode():
+                    libs += ["cuda"]
+                else:
+                    libs += ["c10_cuda", "cuda", "torch_cuda"]
     else:
         # Note - this is effectively a header only inclusion. Usage of some header files may result in
         # symbol not found, if those header files require a library.

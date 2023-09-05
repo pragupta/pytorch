@@ -57,6 +57,7 @@ batch_fusion = True
 # enable reordering pass
 reordering = True
 
+aot_inductor_output_path = ""
 # for pattern torch.mm(a, b.to(dtype)) with cuda tensors,
 # enable torch._inductor.kernel.mm.tuned_mixed_mm fused kernel.
 # Autotune will compare perf with normal cast->then->mm option
