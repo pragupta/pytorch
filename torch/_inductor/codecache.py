@@ -844,6 +844,7 @@ def get_include_and_linking_paths(
         if cuda:
             if torch.version.hip is not None:
                 libs += ["c10_hip", "torch_hip"]
+                macros += " -D __HIP_PLATFORM_AMD__"
             else:
                 if config.is_fbcode():
                     libs += ["cuda"]
