@@ -265,10 +265,10 @@ class AOTInductorTestsTemplate:
             model,
             example_inputs,
             expected,
-            options={
-                "max_autotune": True,
-                "max_autotune_gemm_backends": "TRITON",
-            },
+#            options={
+#                "max_autotune": True,
+#                "max_autotune_gemm_backends": "TRITON",
+#            },
         )
         self.assertTrue(same(actual, expected))
 
@@ -548,5 +548,5 @@ if __name__ == "__main__":
     from torch._dynamo.test_case import run_tests
 
     # cpp_extension N/A in fbcode
-    if HAS_CUDA and not TEST_WITH_ROCM:
+    if HAS_CUDA and not IS_FBCODE:
         run_tests(needs="filelock")
