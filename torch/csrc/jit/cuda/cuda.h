@@ -1,31 +1,31 @@
-#include <ATen/cuda/CUDAEvent.h>
+#include <ATen/hip/HIPEvent.h>
 #include <c10/core/Device.h>
-#include <c10/cuda/CUDAStream.h>
+#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
 #include <torch/custom_class.h>
 
 namespace torch {
 namespace jit {
 
 class CUDAEvent;
-// This class is a wrapper around c10::cuda::CUDAStream.
+// This class is a wrapper around c10::hip::HIPStreamMasqueradingAsCUDA.
 // It is needed because TorchBind does not support all of the argument types
-// for c10::cuda::CUDAStream. For more details, please refer to
-// c10/cuda/CUDAStream.h.
-class CUDAStream final : public CustomClassHolder {
+// for c10::hip::HIPStreamMasqueradingAsCUDA. For more details, please refer to
+// ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h.
+class HIPStreamMasqueradingAsCUDA final : public CustomClassHolder {
  public:
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-  CUDAStream(
+  HIPStreamMasqueradingAsCUDA(
       c10::optional<c10::Device> device = c10::nullopt,
       int64_t priority = 0) {
     c10::DeviceIndex device_index =
-        device.has_value() ? device->index() : c10::cuda::current_device();
-    stream_ = std::make_unique<c10::cuda::CUDAStream>(
-        c10::cuda::getStreamFromPool(static_cast<int>(priority), device_index));
+        device.has_value() ? device->index() : c10::hip::current_device();
+    stream_ = std::make_unique<c10::hip::HIPStreamMasqueradingAsCUDA>(
+        c10::hip::getStreamFromPoolMasqueradingAsCUDA(static_cast<int>(priority), device_index));
   }
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-  CUDAStream(c10::cuda::CUDAStream s) {
-    stream_ = std::make_unique<c10::cuda::CUDAStream>(s);
+  HIPStreamMasqueradingAsCUDA(c10::hip::HIPStreamMasqueradingAsCUDA s) {
+    stream_ = std::make_unique<c10::hip::HIPStreamMasqueradingAsCUDA>(s);
   }
 
   bool query() {
@@ -41,7 +41,7 @@ class CUDAStream final : public CustomClassHolder {
 
   void waitEvent(c10::intrusive_ptr<CUDAEvent> event);
 
-  void waitStream(c10::intrusive_ptr<CUDAStream> stream);
+  void waitStream(c10::intrusive_ptr<HIPStreamMasqueradingAsCUDA> stream);
 
   /// Get the CUDA device index that this stream is associated with.
   int64_t device_index() const {
@@ -60,11 +60,11 @@ class CUDAStream final : public CustomClassHolder {
   }
 
  private:
-  std::unique_ptr<c10::cuda::CUDAStream> stream_;
+  std::unique_ptr<c10::hip::HIPStreamMasqueradingAsCUDA> stream_;
   friend class CUDAEvent;
 };
 
-// This class is a wrapper around at::cuda::CUDAStream.
+// This class is a wrapper around at::hip::HIPStreamMasqueradingAsCUDA.
 // It is needed because TorchBind does not support all of the argument types
 // for at::cuda::CUDAEvent. For more details, please refer to
 // aten/src/ATen/cuda/CUDAEvent.h.
@@ -76,16 +76,16 @@ class CUDAEvent final : public CustomClassHolder {
       bool blocking = false,
       bool interprocess = false) {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-    int flags = cudaEventDisableTiming;
+    int flags = hipEventDisableTiming;
     if (enable_timing) {
-      flags = cudaEventDefault;
+      flags = hipEventDefault;
     }
     if (blocking) {
-      flags |= cudaEventBlockingSync;
+      flags |= hipEventBlockingSync;
     }
     if (interprocess) {
       TORCH_CHECK(!enable_timing);
-      flags |= cudaEventInterprocess;
+      flags |= hipEventInterprocess;
     }
 
     event_ = std::make_unique<at::cuda::CUDAEvent>(flags);
@@ -97,7 +97,7 @@ class CUDAEvent final : public CustomClassHolder {
 
   std::string ipcHandle() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-    cudaIpcEventHandle_t handle;
+    hipIpcEventHandle_t handle;
     event_->ipc_handle(&handle);
     std::string str_handle((const char*)&handle, sizeof(handle));
     return str_handle;
@@ -107,21 +107,21 @@ class CUDAEvent final : public CustomClassHolder {
     return event_->query();
   }
 
-  void record(c10::intrusive_ptr<CUDAStream> stream);
+  void record(c10::intrusive_ptr<HIPStreamMasqueradingAsCUDA> stream);
 
   void synchronize() {
     event_->synchronize();
   }
-  void wait(c10::intrusive_ptr<CUDAStream> stream);
+  void wait(c10::intrusive_ptr<HIPStreamMasqueradingAsCUDA> stream);
 
  private:
-  void recordInternal(CUDAStream* stream);
+  void recordInternal(HIPStreamMasqueradingAsCUDA* stream);
   std::unique_ptr<at::cuda::CUDAEvent> event_;
 
-  friend class CUDAStream;
+  friend class HIPStreamMasqueradingAsCUDA;
 };
 
-c10::intrusive_ptr<CUDAEvent> CUDAStream::recordEvent(
+c10::intrusive_ptr<CUDAEvent> HIPStreamMasqueradingAsCUDA::recordEvent(
     c10::intrusive_ptr<CUDAEvent> event) {
   if (!event) {
     event = c10::make_intrusive<CUDAEvent>();
@@ -131,30 +131,30 @@ c10::intrusive_ptr<CUDAEvent> CUDAStream::recordEvent(
   return event;
 }
 
-void CUDAStream::waitEvent(c10::intrusive_ptr<CUDAEvent> event) {
+void HIPStreamMasqueradingAsCUDA::waitEvent(c10::intrusive_ptr<CUDAEvent> event) {
   event->event_->block(*stream_);
 }
 
-void CUDAStream::waitStream(c10::intrusive_ptr<CUDAStream> stream) {
+void HIPStreamMasqueradingAsCUDA::waitStream(c10::intrusive_ptr<HIPStreamMasqueradingAsCUDA> stream) {
   auto ev = c10::make_intrusive<CUDAEvent>();
   stream->recordEvent(ev);
   waitEvent(ev);
 }
 
-void CUDAEvent::record(c10::intrusive_ptr<CUDAStream> stream) {
+void CUDAEvent::record(c10::intrusive_ptr<HIPStreamMasqueradingAsCUDA> stream) {
   event_->record(*stream->stream_);
 }
 
-void CUDAEvent::recordInternal(CUDAStream* stream) {
+void CUDAEvent::recordInternal(HIPStreamMasqueradingAsCUDA* stream) {
   event_->record(*stream->stream_);
 }
 
-void CUDAEvent::wait(c10::intrusive_ptr<CUDAStream> stream) {
+void CUDAEvent::wait(c10::intrusive_ptr<HIPStreamMasqueradingAsCUDA> stream) {
   event_->block(*stream->stream_);
 }
 
 TORCH_LIBRARY(cuda, m) {
-  auto stream_class = m.class_<torch::jit::CUDAStream>("Stream").def(
+  auto stream_class = m.class_<torch::jit::HIPStreamMasqueradingAsCUDA>("Stream").def(
       torch::init<c10::optional<c10::Device>, int64_t>(),
       "",
       {torch::arg("device") = c10::nullopt, torch::arg("priority") = 0});
@@ -165,14 +165,14 @@ TORCH_LIBRARY(cuda, m) {
        torch::arg("blocking") = false,
        torch::arg("interprocess") = false});
 
-  stream_class.def("query", &CUDAStream::query)
-      .def("record_event", &CUDAStream::recordEvent)
-      .def("synchronize", &CUDAStream::synchronize)
-      .def("wait_event", &CUDAStream::waitEvent)
-      .def("wait_stream", &CUDAStream::waitStream)
-      .def("device_index", &CUDAStream::device_index)
-      .def_property("device", &CUDAStream::device)
-      .def("id", &CUDAStream::id);
+  stream_class.def("query", &HIPStreamMasqueradingAsCUDA::query)
+      .def("record_event", &HIPStreamMasqueradingAsCUDA::recordEvent)
+      .def("synchronize", &HIPStreamMasqueradingAsCUDA::synchronize)
+      .def("wait_event", &HIPStreamMasqueradingAsCUDA::waitEvent)
+      .def("wait_stream", &HIPStreamMasqueradingAsCUDA::waitStream)
+      .def("device_index", &HIPStreamMasqueradingAsCUDA::device_index)
+      .def_property("device", &HIPStreamMasqueradingAsCUDA::device)
+      .def("id", &HIPStreamMasqueradingAsCUDA::id);
 
   event_class.def("elapsed_time", &CUDAEvent::elapsedTime)
       .def("query", &CUDAEvent::query)

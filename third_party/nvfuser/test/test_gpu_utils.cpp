@@ -1,4 +1,4 @@
-#if defined(USE_CUDA)
+#if defined(USE_ROCM)
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -270,4 +270,4 @@ TEST_F(NVFuserTest, FusionTVDomainGuard_CUDA) {
 
 } // namespace jit
 } // namespace torch
-#endif // #if defined(USE_CUDA)
+#endif // #if defined(USE_ROCM)

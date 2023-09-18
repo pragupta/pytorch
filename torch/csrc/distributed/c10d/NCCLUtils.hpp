@@ -10,7 +10,7 @@
 
 #include <c10/util/Exception.h>
 #include <c10/util/Optional.h>
-#include <nccl.h>
+#include <rccl/rccl.h>
 
 #if defined(NCCL_MAJOR) && (NCCL_MAJOR == 2) && defined(NCCL_MINOR) && \
     (NCCL_MINOR >= 14)

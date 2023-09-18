@@ -2,7 +2,7 @@
 
 #include <utils.h>
 
-#include <nvToolsExt.h>
+#include <roctracer/roctx.h>
 
 // NOLINTNEXTLINE(modernize-deprecated-headers)
 #include <stdio.h>
@@ -46,13 +46,13 @@ class TORCH_CUDA_CU_API Trace : public NonCopyable {
       logEvent('B', name);
     }
     if (record_nvtx_range_) {
-      nvtxRangePushA(name);
+      roctxRangePushA(name);
     }
   }
 
   void endEvent(const char* name) {
     if (record_nvtx_range_) {
-      nvtxRangePop();
+      roctxRangePop();
     }
     if (log_file_ != nullptr) {
       logEvent('E', name);

@@ -13,13 +13,13 @@
 #include <utils.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/llvm_jit_strings.h>
-#include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
-#include <ATen/native/cuda/jit_utils.h>
+#include <ATen/hip/HIPContext.h>
+#include <ATen/hip/llvm_jit_strings.h>
+#include <ATen/hip/nvrtc_stub/ATenNVRTC.h>
+#include <ATen/native/hip/jit_utils.h>
 #include <c10/core/DeviceGuard.h>
-#include <c10/cuda/CUDAFunctions.h>
-#include <c10/cuda/CUDAStream.h>
+#include <c10/hip/HIPFunctions.h>
+#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
 #include <c10/util/irange.h>
 
 #include <cmath>
@@ -338,9 +338,9 @@ void FusionExecutor::compileFusion(
 #ifndef USE_ROCM
   // The driver API call requires an int argument.
   int max_dynamic_smem = 0;
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuFuncGetAttribute(
+  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().hipFuncGetAttribute(
       &max_dynamic_smem,
-      CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+      hipFuncAttributeMaxDynamicSharedMemorySize,
       compiled_kernel_.function));
   maybe_available_dynamic_smem_ = max_dynamic_smem;
 #endif
@@ -975,7 +975,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   c10::DeviceGuard dg(options_.device);
-  auto stream = at::cuda::getCurrentCUDAStream();
+  auto stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
   at::cuda::jit::initializeCudaContext();
   TORCH_INTERNAL_ASSERT(lowered_);
   launch_params_ = LaunchParams();
@@ -1090,7 +1090,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (kernel()->summary().has_cooperative_grid_reduction) {
 #ifndef USE_ROCM
       int num_blocks_per_SM = -1;
-      at::globalContext().getNVRTC().cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      at::globalContext().getNVRTC().hipModuleOccupancyMaxActiveBlocksPerMultiprocessor(
           &num_blocks_per_SM,
           compiled_kernel_.function,
           (int)(launch_params_.bdimx() * launch_params_.bdimy() * launch_params_.bdimz()),
@@ -1246,15 +1246,15 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
   }
 
-  cudaEvent_t start_event = {};
-  cudaEvent_t finish_event = {};
+  hipEvent_t start_event = {};
+  hipEvent_t finish_event = {};
 
   if (measure_kernel_time_ ||
       isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    C10_CUDA_CHECK(cudaEventCreate(&start_event));
-    C10_CUDA_CHECK(cudaEventCreate(&finish_event));
-    C10_CUDA_CHECK(cudaEventRecord(start_event));
+    C10_HIP_CHECK(hipEventCreate(&start_event));
+    C10_HIP_CHECK(hipEventCreate(&finish_event));
+    C10_HIP_CHECK(hipEventRecord(start_event));
   }
 
   if (execute_kernel_) {
@@ -1262,18 +1262,18 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         size_t(launch_params_.smem()) > maybe_available_dynamic_smem_.value()) {
 #ifndef USE_ROCM
       // Increase limit of dynamic shared memory if needed.
-      AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuFuncSetAttribute(
+      AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().hipFuncSetAttribute(
           compiled_kernel_.function,
-          CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+          hipFuncAttributeMaxDynamicSharedMemorySize,
           launch_params_.smem()));
 #else
       TORCH_INTERNAL_ASSERT(
-          false, "cuFuncSetAttribute not supported with HIP.");
+          false, "hipFuncSetAttribute not supported with HIP.");
 #endif
     }
     if (!kernel()->summary().has_cooperative_grid_reduction) {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
-      AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuLaunchKernel(
+      FUSER_PERF_SCOPE("ExecutorRunFusion::hipModuleLaunchKernel");
+      AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().hipModuleLaunchKernel(
           compiled_kernel_.function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
@@ -1310,13 +1310,13 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (measure_kernel_time_ ||
       isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    C10_CUDA_CHECK(cudaEventRecord(finish_event));
-    C10_CUDA_CHECK(cudaEventSynchronize(start_event));
-    C10_CUDA_CHECK(cudaEventSynchronize(finish_event));
-    C10_CUDA_CHECK(
-        cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
-    C10_CUDA_CHECK(cudaEventDestroy(start_event));
-    C10_CUDA_CHECK(cudaEventDestroy(finish_event));
+    C10_HIP_CHECK(hipEventRecord(finish_event));
+    C10_HIP_CHECK(hipEventSynchronize(start_event));
+    C10_HIP_CHECK(hipEventSynchronize(finish_event));
+    C10_HIP_CHECK(
+        hipEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
+    C10_HIP_CHECK(hipEventDestroy(start_event));
+    C10_HIP_CHECK(hipEventDestroy(finish_event));
 
     bytes_processed_ = 0;
     // Figure how many bytes are inputs, outputs, and temporary buffers
@@ -1373,11 +1373,11 @@ void FusionExecutor::runRtc(
   FUSER_PERF_SCOPE("runFusion");
 
   c10::DeviceGuard dg(options_.device);
-  auto stream = at::cuda::getCurrentCUDAStream();
+  auto stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
 
   KernelArgumentHolder kernel_arguments(options_.index_mode);
   kernel_arguments.push(args);
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuLaunchKernel(
+  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().hipModuleLaunchKernel(
       compiled_kernel_.function,
       launch_params.gdimx(),
       launch_params.gdimy(),

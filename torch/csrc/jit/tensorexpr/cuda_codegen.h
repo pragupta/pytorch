@@ -4,10 +4,10 @@
 #include <unordered_set>
 
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
-#include <c10/cuda/CUDACachingAllocator.h>
-#include <c10/cuda/CUDAGuard.h>
+#include <ATen/hip/HIPContext.h>
+#include <ATen/hip/nvrtc_stub/ATenNVRTC.h>
+#include <ATen/hip/impl/HIPCachingAllocatorMasqueradingAsCUDA.h>
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
 #include <torch/csrc/jit/resource_guard.h>
 #include <torch/csrc/jit/tensorexpr/codegen.h>
 #include <torch/csrc/jit/tensorexpr/eval.h>
@@ -207,7 +207,7 @@ class TORCH_CUDA_CU_API CudaCodeGen : public CodeGen {
       : CodeGen(
             stmt,
             std::vector<BufferArg>({BufferArg(ts)...}),
-            at::Device(at::kCUDA, at::cuda::current_device())) {
+            at::Device(at::kCUDA, at::hip::current_device())) {
     Initialize();
   }
 
@@ -215,7 +215,7 @@ class TORCH_CUDA_CU_API CudaCodeGen : public CodeGen {
   CudaCodeGen(
       StmtPtr stmt,
       const std::vector<BufferArg>& buffer_args,
-      at::Device device = at::Device(at::kCUDA, at::cuda::current_device()),
+      at::Device device = at::Device(at::kCUDA, at::hip::current_device()),
       const std::string& kernel_func_name = "func")
       : CodeGen(stmt, buffer_args, device, kernel_func_name) {
     Initialize();
@@ -274,7 +274,7 @@ class TORCH_CUDA_CU_API CudaCodeGen : public CodeGen {
   std::unique_ptr<GPUMetaVarRewriter> metavar_rewriter_;
   std::unordered_set<std::string> taken_func_names;
   std::mutex eval_lock_;
-  CUfunction function_;
+  hipFunction_t function_;
   bool has_random_ = false;
   int thread_block_size_ = -1;
 

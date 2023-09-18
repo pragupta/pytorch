@@ -8,7 +8,7 @@
 
 #include <ATen/ATen.h>
 
-#include <c10/cuda/CUDAGuard.h>
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
 #include <torch/csrc/inductor/aot_runtime/proxy_executor.h>
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
 
@@ -46,11 +46,11 @@ class AOTInductorModelBase {
         outputs_info_(num_outputs),
         constants_info_(num_constants),
         cubin_dir_(cubin_dir) {
-    C10_CUDA_CHECK(cudaEventCreate(&run_finished_));
+    C10_HIP_CHECK(hipEventCreate(&run_finished_));
   }
 
   ~AOTInductorModelBase() {
-    C10_CUDA_CHECK(cudaEventDestroy(run_finished_));
+    C10_HIP_CHECK(hipEventDestroy(run_finished_));
   }
 
   AOTInductorModelBase(AOTInductorModelBase&&) = delete;
@@ -64,14 +64,14 @@ class AOTInductorModelBase {
   void run(
       std::vector<at::Tensor>& inputs,
       std::vector<at::Tensor>& outputs,
-      cudaStream_t stream,
+      hipStream_t stream,
       ProxyExecutor* proxy_executor = nullptr) {
     AOT_VECTOR_SIZE_CHECK(inputs, num_inputs());
     AOT_VECTOR_SIZE_CHECK(outputs, num_outputs());
 
     auto* model = static_cast<Model*>(this);
     model->run_impl(inputs, outputs, stream, proxy_executor);
-    C10_CUDA_CHECK(cudaEventRecord(run_finished_, stream));
+    C10_HIP_CHECK(hipEventRecord(run_finished_, stream));
   }
 
   size_t num_inputs() const {
@@ -144,21 +144,21 @@ class AOTInductorModelBase {
 
   /// Returns true if the model is complete.
   bool is_finished() {
-    auto event_status = cudaEventQuery(run_finished_);
-    if (event_status == cudaSuccess) {
+    auto event_status = hipEventQuery(run_finished_);
+    if (event_status == hipSuccess) {
       return true;
-    } else if (event_status == cudaErrorNotReady) {
+    } else if (event_status == hipErrorNotReady) {
       return false;
     }
 
     throw std::runtime_error(
         std::string("The model did not finish successfully. Error: ") +
-        cudaGetErrorString(cudaGetLastError()));
+        hipGetErrorString(hipGetLastError()));
   }
 
   /// Synchronizes completion event.
   void wait_for_completion() {
-    C10_CUDA_CHECK(cudaEventSynchronize(run_finished_));
+    C10_HIP_CHECK(hipEventSynchronize(run_finished_));
   }
 
  protected:
@@ -280,7 +280,7 @@ class AOTInductorModelBase {
 
   // Record if the model finishes an inference run so that its owning
   // AOTModelContainer can re-use this instance.
-  cudaEvent_t run_finished_;
+  hipEvent_t run_finished_;
 
  protected:
   std::vector<std::unique_ptr<StaticDimInfo>> static_dims_;
@@ -321,7 +321,7 @@ class AOTInductorModel : public AOTInductorModelBase<AOTInductorModel> {
   void run_impl(
       std::vector<at::Tensor>& inputs,
       std::vector<at::Tensor>& outputs,
-      cudaStream_t stream,
+      hipStream_t stream,
       ProxyExecutor* proxy_executor = nullptr);
 
   static std::unique_ptr<AOTInductorModel> Create(
@@ -357,7 +357,7 @@ inline RAIIAtenTensorHandle create_raii_tensor_handle_for_temp(
 
 class AOTICudaStreamGuard {
  public:
-  AOTICudaStreamGuard(cudaStream_t stream, int32_t device_index) {
+  AOTICudaStreamGuard(hipStream_t stream, int32_t device_index) {
     CUDAStreamGuardHandle ptr;
     AOTI_TORCH_ERROR_CHECK(
         aoti_torch_create_cuda_stream_guard(&ptr, stream, device_index));

@@ -11,7 +11,7 @@
 #include <scheduler/vectorize_helper.h>
 #include <transform_replay.h>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 
 namespace torch {
 namespace jit {

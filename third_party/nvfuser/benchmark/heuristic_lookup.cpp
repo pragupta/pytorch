@@ -9,7 +9,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include <benchmarks/cpp/nvfuser/utils.h>
 

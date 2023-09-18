@@ -14,7 +14,7 @@
 
 #include <limits>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 
 namespace torch {
 namespace jit {

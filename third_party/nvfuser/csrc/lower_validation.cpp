@@ -12,7 +12,7 @@
 #include <transform_replay.h>
 #include <type.h>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 #include <limits>
 
 namespace torch {

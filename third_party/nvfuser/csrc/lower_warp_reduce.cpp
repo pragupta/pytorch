@@ -1,4 +1,4 @@
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 #include <expr_evaluator.h>
 #include <kernel_expr_evaluator.h>
 #include <kernel_ir_dispatch.h>

@@ -1,7 +1,7 @@
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/CUDAGeneratorImpl.h>
-#include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
-#include <ATen/native/cuda/jit_utils.h>
+#include <ATen/hip/HIPContext.h>
+#include <ATen/hip/HIPGeneratorImpl.h>
+#include <ATen/hip/nvrtc_stub/ATenNVRTC.h>
+#include <ATen/native/hip/jit_utils.h>
 
 #include <c10/util/irange.h>
 
@@ -930,16 +930,16 @@ ExpressionEvaluator bindFusionInputs(
 namespace {
 
 // Dump PTX or CUBIN to a file
-#if CUDA_VERSION >= 11010
+#if TORCH_HIP_VERSION >= 11010
 void dumpCompiledCodeToFile(
-    const nvrtcProgram& program,
+    const hiprtcProgram& program,
     int fusion_id,
     bool dump_cubin) {
   const auto getSize = dump_cubin
       ? at::globalContext().getNVRTC().nvrtcGetCUBINSize
-      : at::globalContext().getNVRTC().nvrtcGetPTXSize;
+      : at::globalContext().getNVRTC().hiprtcGetCodeSize;
   const auto getCode = dump_cubin ? at::globalContext().getNVRTC().nvrtcGetCUBIN
-                                  : at::globalContext().getNVRTC().nvrtcGetPTX;
+                                  : at::globalContext().getNVRTC().hiprtcGetCode;
   size_t size = 0;
   AT_CUDA_NVRTC_CHECK(getSize(program, &size));
   std::vector<char> code(size);
@@ -978,21 +978,21 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
   bool compile_to_sass = false;
   codegenOutputQuery(prop, major, minor, compile_to_sass);
 
-  nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
+  hiprtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
 
   {
     std::stringstream ss;
     ss << "__tmp_kernel" << id << ".cu";
     std::string name = ss.str();
     FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
-    AT_CUDA_NVRTC_CHECK(at::globalContext().getNVRTC().nvrtcCreateProgram(
+    AT_CUDA_NVRTC_CHECK(at::globalContext().getNVRTC().hiprtcCreateProgram(
         &program, code.c_str(), name.c_str(), 0, nullptr, nullptr));
   }
 
   ResourceGuard holdProgram([&] {
     FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
     AT_CUDA_NVRTC_CHECK(
-        at::globalContext().getNVRTC().nvrtcDestroyProgram(&program));
+        at::globalContext().getNVRTC().hiprtcDestroyProgram(&program));
   });
 
 #ifdef USE_ROCM
@@ -1001,7 +1001,7 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
   args.push_back("-hip-pch");
 #endif
 #else
-#if CUDA_VERSION < 11010
+#if TORCH_HIP_VERSION < 11010
   // compile to sass is not allowed prior to CUDA 11.1
   compile_to_sass = false;
 #endif
@@ -1056,7 +1056,7 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
   std::string jit_opt_level = "-O";
 
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  std::vector<CUjit_option> options;
+  std::vector<hipJitOption> options;
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   std::vector<void*> option_vals;
   std::vector<char> info_log;
@@ -1069,14 +1069,14 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
       args.push_back("--ptxas-options");
       args.push_back("--verbose");
     } else {
-      options.push_back(CU_JIT_LOG_VERBOSE);
+      options.push_back(hipJitOptionLogVerbose);
       option_vals.push_back((void*)1);
       info_log.reserve(log_size);
 
-      options.push_back(CU_JIT_INFO_LOG_BUFFER);
+      options.push_back(hipJitOptionInfoLogBuffer);
       option_vals.push_back((void*)info_log.data());
 
-      options.push_back(CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES);
+      options.push_back(hipJitOptionInfoLogBufferSizeBytes);
       option_vals.push_back((void*)(long)log_size);
     }
   }
@@ -1095,7 +1095,7 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
         args.push_back("--ptxas-options");
         args.push_back(jit_opt_level.c_str());
       } else {
-        options.push_back(CU_JIT_OPTIMIZATION_LEVEL);
+        options.push_back(hipJitOptionOptimizationLevel);
         option_vals.push_back((void*)(intptr_t)val);
       }
     } else {
@@ -1136,7 +1136,7 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
       args.push_back("--ptxas-options");
       args.push_back(max_register_usage.c_str());
     } else {
-      options.push_back(CU_JIT_MAX_REGISTERS);
+      options.push_back(hipJitOptionMaxRegisters);
       option_vals.push_back((void*)(intptr_t)max_register);
     }
 
@@ -1148,22 +1148,22 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
   }
 #endif
 
-  at::globalContext().getNVRTC().nvrtcAddNameExpression(
+  at::globalContext().getNVRTC().hiprtcAddNameExpression(
       program, func_name.c_str());
 
   {
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::CompileProgram");
 
-    const auto result = at::globalContext().getNVRTC().nvrtcCompileProgram(
+    const auto result = at::globalContext().getNVRTC().hiprtcCompileProgram(
         program, args.size(), args.data());
 
     size_t logsize = 0;
-    at::globalContext().getNVRTC().nvrtcGetProgramLogSize(program, &logsize);
+    at::globalContext().getNVRTC().hiprtcGetProgramLogSize(program, &logsize);
 
     std::vector<char> log(logsize);
-    at::globalContext().getNVRTC().nvrtcGetProgramLog(program, log.data());
+    at::globalContext().getNVRTC().hiprtcGetProgramLog(program, log.data());
 
-    if (result != NVRTC_SUCCESS) {
+    if (result != HIPRTC_SUCCESS) {
       TORCH_INTERNAL_ASSERT(
           false, code.c_str(), "\nCUDA NVRTC compile error: ", log.data());
     }
@@ -1176,7 +1176,7 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
   }
 
   const char* lowered_kernel_name = nullptr;
-  at::globalContext().getNVRTC().nvrtcGetLoweredName(
+  at::globalContext().getNVRTC().hiprtcGetLoweredName(
       program, func_name.c_str(), &lowered_kernel_name);
 
   size_t ptx_size = 0;
@@ -1185,18 +1185,18 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
 
   {
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::GetPTX");
-#if CUDA_VERSION >= 11010
+#if TORCH_HIP_VERSION >= 11010
     // compile_to_sass determines whether we are generating SASS or PTX, hence
     // the different API.
     const auto getSize = compile_to_sass
         ? at::globalContext().getNVRTC().nvrtcGetCUBINSize
-        : at::globalContext().getNVRTC().nvrtcGetPTXSize;
+        : at::globalContext().getNVRTC().hiprtcGetCodeSize;
     const auto getFunc = compile_to_sass
         ? at::globalContext().getNVRTC().nvrtcGetCUBIN
-        : at::globalContext().getNVRTC().nvrtcGetPTX;
+        : at::globalContext().getNVRTC().hiprtcGetCode;
 #else
-    const auto getSize = at::globalContext().getNVRTC().nvrtcGetPTXSize;
-    const auto getFunc = at::globalContext().getNVRTC().nvrtcGetPTX;
+    const auto getSize = at::globalContext().getNVRTC().hiprtcGetCodeSize;
+    const auto getFunc = at::globalContext().getNVRTC().hiprtcGetCode;
 #endif
     AT_CUDA_NVRTC_CHECK(getSize(program, &ptx_size));
     ptx.resize(ptx_size);
@@ -1207,7 +1207,7 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
 
 #ifndef USE_ROCM
 
-#if CUDA_VERSION >= 11010
+#if TORCH_HIP_VERSION >= 11010
   if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
     dumpCompiledCodeToFile(program, id, false);
   }
@@ -1224,7 +1224,7 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::LoadPTX");
 
     // load ptx or cubin directly
-    AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuModuleLoadDataEx(
+    AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().hipModuleLoadDataEx(
         &(compiled_kernel_.module),
         ptx.data(),
         options.size(),
@@ -1238,11 +1238,11 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
   }
 #else
   // load ptx directly
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuModuleLoadData(
+  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().hipModuleLoadData(
       &(compiled_kernel_.module), ptx.data()));
 
 #endif
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuModuleGetFunction(
+  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().hipModuleGetFunction(
       &(compiled_kernel_.function),
       compiled_kernel_.module,
       lowered_kernel_name));

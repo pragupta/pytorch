@@ -1,8 +1,8 @@
 #include <sstream>
 
-#include <nvToolsExt.h>
+#include <roctracer/roctx.h>
 
-#include <c10/cuda/CUDAGuard.h>
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
 #include <c10/util/irange.h>
 #include <torch/csrc/profiler/stubs/base.h>
 #include <torch/csrc/profiler/util.h>
@@ -12,11 +12,11 @@ namespace profiler {
 namespace impl {
 namespace {
 
-static inline void cudaCheck(cudaError_t result, const char* file, int line) {
-  if (result != cudaSuccess) {
+static inline void cudaCheck(hipError_t result, const char* file, int line) {
+  if (result != hipSuccess) {
     std::stringstream ss;
     ss << file << ":" << line << ": ";
-    if (result == cudaErrorInitializationError) {
+    if (result == hipErrorInitializationError) {
       // It is common for users to use DataLoader with multiple workers
       // and the autograd profiler. Throw a nice error message here.
       ss << "CUDA initialization error. "
@@ -28,7 +28,7 @@ static inline void cudaCheck(cudaError_t result, const char* file, int line) {
          << "of your code. https://github.com/pytorch/pytorch/issues/6313 "
          << "tracks profiler support for multi-worker DataLoader.";
     } else {
-      ss << cudaGetErrorString(result);
+      ss << hipGetErrorString(result);
     }
     throw std::runtime_error(ss.str());
   }
@@ -39,19 +39,19 @@ struct CUDAMethods : public ProfilerStubs {
   void record(int* device, ProfilerVoidEventStub* event, int64_t* cpu_ns)
       const override {
     if (device) {
-      TORCH_CUDA_CHECK(c10::cuda::GetDevice(device));
+      TORCH_CUDA_CHECK(c10::hip::GetDevice(device));
     }
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-    CUevent_st* cuda_event_ptr;
-    TORCH_CUDA_CHECK(cudaEventCreate(&cuda_event_ptr));
-    *event = std::shared_ptr<CUevent_st>(cuda_event_ptr, [](CUevent_st* ptr) {
-      TORCH_CUDA_CHECK(cudaEventDestroy(ptr));
+    ihipEvent_t* cuda_event_ptr;
+    TORCH_CUDA_CHECK(hipEventCreate(&cuda_event_ptr));
+    *event = std::shared_ptr<ihipEvent_t>(cuda_event_ptr, [](ihipEvent_t* ptr) {
+      TORCH_CUDA_CHECK(hipEventDestroy(ptr));
     });
-    auto stream = at::cuda::getCurrentCUDAStream();
+    auto stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
     if (cpu_ns) {
       *cpu_ns = torch::profiler::impl::getTime();
     }
-    TORCH_CUDA_CHECK(cudaEventRecord(cuda_event_ptr, stream));
+    TORCH_CUDA_CHECK(hipEventRecord(cuda_event_ptr, stream));
   }
 
   float elapsed(
@@ -59,31 +59,31 @@ struct CUDAMethods : public ProfilerStubs {
       const ProfilerVoidEventStub* event2_) const override {
     auto event = (const ProfilerEventStub*)(event_);
     auto event2 = (const ProfilerEventStub*)(event2_);
-    TORCH_CUDA_CHECK(cudaEventSynchronize(event->get()));
-    TORCH_CUDA_CHECK(cudaEventSynchronize(event2->get()));
+    TORCH_CUDA_CHECK(hipEventSynchronize(event->get()));
+    TORCH_CUDA_CHECK(hipEventSynchronize(event2->get()));
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     float ms;
-    TORCH_CUDA_CHECK(cudaEventElapsedTime(&ms, event->get(), event2->get()));
+    TORCH_CUDA_CHECK(hipEventElapsedTime(&ms, event->get(), event2->get()));
     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-avoid-magic-numbers,cppcoreguidelines-narrowing-conversions)
     return ms * 1000.0;
   }
 
   void mark(const char* name) const override {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-    ::nvtxMark(name);
+    ::roctxMark(name);
   }
 
   void rangePush(const char* name) const override {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-    ::nvtxRangePushA(name);
+    ::roctxRangePushA(name);
   }
 
   void rangePop() const override {
-    ::nvtxRangePop();
+    ::roctxRangePop();
   }
 
   void onEachDevice(std::function<void(int)> op) const override {
-    at::cuda::OptionalCUDAGuard device_guard;
+    at::hip::OptionalHIPGuardMasqueradingAsCUDA device_guard;
     for (const auto i : c10::irange(at::cuda::device_count())) {
       device_guard.set_index(i);
       op(i);
@@ -91,7 +91,7 @@ struct CUDAMethods : public ProfilerStubs {
   }
 
   void synchronize() const override {
-    TORCH_CUDA_CHECK(cudaDeviceSynchronize());
+    TORCH_CUDA_CHECK(hipDeviceSynchronize());
   }
 
   bool enabled() const override {

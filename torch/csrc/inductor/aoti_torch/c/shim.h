@@ -162,7 +162,7 @@ AOTI_TORCH_EXPORT AOTI_TORCH_NOINLINE AOTITorchError aoti_torch_mm_out(
     AtenTensorHandle self,
     AtenTensorHandle mat2);
 
-#ifdef USE_CUDA
+#ifdef USE_ROCM
 
 struct CUDAStreamGuardOpaque;
 using CUDAStreamGuardHandle = CUDAStreamGuardOpaque*;

@@ -9,7 +9,7 @@
 #include <torch/csrc/jit/runtime/graph_executor.h>
 
 #include <c10/core/thread_pool.h>
-#include <c10/cuda/CUDAGuard.h>
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/jit_log.h>
 
@@ -485,9 +485,9 @@ void FusionKernelRuntime::startAsyncCompile(KernelArgumentHolder& args_old) {
 
     // locking mutex_ since we are touching executors_ during compilation.
     // c10::DeviceGuard dg(c10::Device(DeviceType::CUDA,
-    // args.getDeviceIndex())); CUDAGuard uses runtime API directly, which is
+    // args.getDeviceIndex())); HIPGuardMasqueradingAsCUDA uses runtime API directly, which is
     // thread safe.
-    c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+    c10::hip::HIPGuardMasqueradingAsCUDA dg(args.getDeviceIndex());
 
     FUSER_PERF_SCOPE("FusionKernelRuntime::startAsyncCompile");
 

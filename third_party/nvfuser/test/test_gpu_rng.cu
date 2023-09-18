@@ -1,7 +1,8 @@
+#include "hip/hip_runtime.h"
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <ATen/hip/HIPGeneratorImpl.h>
 #include <c10/util/Optional.h>
 #include <arith.h>
 #include <fusion.h>
@@ -10,14 +11,14 @@
 #include <scheduler/all_schedulers.h>
 #include <test/test_gpu_validator.h>
 #include <test/test_utils.h>
-#include <ATen/cuda/CUDAGraphsUtils.cuh>
+#include <ATen/hip/HIPGraphsUtils.cuh>
 
 #include <cassert>
 #include <type_traits>
 
-#include <curand.h>
-#include <curand_kernel.h>
-#include <curand_philox4x32_x.h>
+#include <hiprand/hiprand.h>
+#include <hiprand/hiprand_kernel.h>
+#include <hiprand/hiprand_kernel.h>
 
 // Tests go in torch::jit
 namespace torch {
@@ -35,11 +36,11 @@ __global__ void generate_uniform_kernel(
   int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
 
   auto seeds = at::cuda::philox::unpack(philox_args);
-  curandStatePhilox4_32_10_t state;
-  curand_init(std::get<0>(seeds), tid, std::get<1>(seeds), &state);
+  hiprandStatePhilox4_32_10_t state;
+  hiprand_init(std::get<0>(seeds), tid, std::get<1>(seeds), &state);
 
   if (std::is_same<T, double>::value) {
-    double2 result = curand_uniform2_double(&state);
+    double2 result = hiprand_uniform2_double(&state);
     if (tid * 2 < size) {
       output[tid * 2] = result.x;
     }
@@ -49,7 +50,7 @@ __global__ void generate_uniform_kernel(
   } else {
     auto is_float = std::is_same<T, float>::value;
     assert(is_float);
-    float4 result = curand_uniform4(&state);
+    float4 result = hiprand_uniform4(&state);
     if (tid * 4 < size) {
       output[tid * 4] = result.x;
     }
@@ -86,7 +87,7 @@ at::Tensor generate_uniform(int64_t size, at::ScalarType dtype) {
         grid,
         block,
         0,
-        at::cuda::getCurrentCUDAStream()>>>(
+        at::hip::getCurrentHIPStreamMasqueradingAsCUDA()>>>(
         result.data_ptr<float>(), size, rng_engine_inputs);
   } else {
     TORCH_CHECK(dtype == kDouble);
@@ -97,7 +98,7 @@ at::Tensor generate_uniform(int64_t size, at::ScalarType dtype) {
         grid,
         block,
         0,
-        at::cuda::getCurrentCUDAStream()>>>(
+        at::hip::getCurrentHIPStreamMasqueradingAsCUDA()>>>(
         result.data_ptr<double>(), size, rng_engine_inputs);
   }
   return result;

@@ -5,7 +5,7 @@
 #include <torch/csrc/autograd/variable.h>
 
 #include <ATen/ATen.h>
-#include <c10/cuda/CUDAStream.h>
+#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
 #include <c10/util/Optional.h>
 
 #include <cstddef>
@@ -19,7 +19,7 @@ struct TORCH_CUDA_CU_API Scatter : public Node {
       std::vector<at::Device> devices,
       c10::optional<std::vector<int64_t>> chunk_sizes = c10::nullopt,
       int64_t dim = 0,
-      c10::optional<std::vector<c10::optional<at::cuda::CUDAStream>>> streams =
+      c10::optional<std::vector<c10::optional<at::hip::HIPStreamMasqueradingAsCUDA>>> streams =
           c10::nullopt,
       bool unsqueeze_scalars = false);
   ~Scatter() override;
@@ -29,7 +29,7 @@ struct TORCH_CUDA_CU_API Scatter : public Node {
   std::vector<at::Device> devices_;
   c10::optional<std::vector<int64_t>> chunk_sizes_;
   int64_t dim_;
-  c10::optional<std::vector<c10::optional<at::cuda::CUDAStream>>> streams_;
+  c10::optional<std::vector<c10::optional<at::hip::HIPStreamMasqueradingAsCUDA>>> streams_;
   bool unsqueeze_scalars_;
 };
 

@@ -1,7 +1,7 @@
 #include <partition.h>
 
 #include <ATen/core/jit_type.h>
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 #include <c10/util/irange.h>
 #include <instrumentation.h>
 #include <parser.h>

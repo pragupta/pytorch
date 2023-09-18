@@ -7,7 +7,7 @@
 #include <torch/csrc/cuda/comm.h>
 
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 
 #include <cstddef>
 #include <memory>
@@ -19,7 +19,7 @@ Scatter::Scatter(
     std::vector<at::Device> devices,
     c10::optional<std::vector<int64_t>> chunk_sizes,
     int64_t dim,
-    c10::optional<std::vector<c10::optional<at::cuda::CUDAStream>>> streams,
+    c10::optional<std::vector<c10::optional<at::hip::HIPStreamMasqueradingAsCUDA>>> streams,
     bool unsqueeze_scalars)
     : devices_(std::move(devices)),
       chunk_sizes_(std::move(chunk_sizes)),

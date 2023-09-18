@@ -1,6 +1,6 @@
 #include <parallel_dimension_map.h>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 #include <expr_evaluator.h>
 #include <ir_utils.h>
 #include <iter_visitor.h>

@@ -25,7 +25,7 @@
 #define C10_RDTSC
 #if defined(_MSC_VER)
 #include <intrin.h>
-#elif defined(__CUDACC__) || defined(__HIPCC__)
+#elif defined(__HIPCC__) || defined(__HIPCC__)
 #undef C10_RDTSC
 #elif defined(__clang__)
 // `__rdtsc` is available by default.

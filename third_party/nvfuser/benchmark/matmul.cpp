@@ -9,7 +9,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include <benchmarks/cpp/nvfuser/utils.h>
 
@@ -176,7 +176,7 @@ static void SingleMatmulBase(
   }
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
-  cudaDeviceSynchronize();
+  hipDeviceSynchronize();
 
   // TODO: FLOPS calculation
 }
@@ -205,7 +205,7 @@ static void EagerModeMatmul(
   }
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
-  cudaDeviceSynchronize();
+  hipDeviceSynchronize();
 }
 
 // Actual benchmarking

@@ -79,7 +79,7 @@ AOTInductorError AOTInductorModelContainerRun(
     output_tensors.push_back(outputs[i]);
   }
 
-  auto stream = reinterpret_cast<cudaStream_t>(stream_handle);
+  auto stream = reinterpret_cast<hipStream_t>(stream_handle);
 
   torch::aot_inductor::ProxyExecutor* proxy_executor = reinterpret_cast<torch::aot_inductor::ProxyExecutor*>(proxy_executor_handle);
 

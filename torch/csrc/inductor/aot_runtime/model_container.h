@@ -25,8 +25,8 @@ using CUDAPtr = std::unique_ptr<void, std::function<void(void*)>>;
 
 CUDAPtr RAII_cudaMalloc(size_t num_bytes) {
   void* data_ptr;
-  C10_CUDA_CHECK(cudaMalloc((void**)&data_ptr, num_bytes));
-  auto deleter = [](void* ptr) { C10_CUDA_CHECK(cudaFree(ptr)); };
+  C10_HIP_CHECK(hipMalloc((void**)&data_ptr, num_bytes));
+  auto deleter = [](void* ptr) { C10_HIP_CHECK(hipFree(ptr)); };
   return CUDAPtr(data_ptr, deleter);
 }
 } // anonymous namespace
@@ -116,11 +116,11 @@ class AOTInductorModelContainer {
         internal_ptr = constants_ptr + constants_internal_offset[i];
         // Copy data to GPU memory
         // TODO: Handle shared storage case.
-        C10_CUDA_CHECK(cudaMemcpy(
+        C10_HIP_CHECK(hipMemcpy(
             internal_ptr,
             _binary_constants_bin_start + bytes_read,
             data_size,
-            cudaMemcpyHostToDevice));
+            hipMemcpyHostToDevice));
       }
       bytes_read += data_size;
 
@@ -147,7 +147,7 @@ class AOTInductorModelContainer {
       std::vector<at::Tensor>& inputs,
       std::vector<at::Tensor>& outputs,
       std::vector<std::vector<int64_t>>** output_shapes,
-      cudaStream_t stream,
+      hipStream_t stream,
       ProxyExecutor* proxy_executor) {
     auto* model = get_available_model();
     try {

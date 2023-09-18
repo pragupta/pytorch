@@ -1,4 +1,4 @@
-#if defined(USE_CUDA)
+#if defined(USE_ROCM)
 #include <gtest/gtest.h>
 
 #include <arith.h>
@@ -33,9 +33,9 @@
 #include <transform_rfactor.h>
 
 // fuser and IR parser
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDAStream.h>
+#include <ATen/hip/HIPContext.h>
+#include <ATen/hip/Exceptions.h>
+#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
 
 #include <algorithm>
 #include <iostream>
@@ -2462,4 +2462,4 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
 
 } // namespace jit
 } // namespace torch
-#endif // #if defined(USE_CUDA)
+#endif // #if defined(USE_ROCM)

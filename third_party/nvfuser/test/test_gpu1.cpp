@@ -1,4 +1,5 @@
-#if defined(USE_CUDA)
+#include "hip/hip_runtime.h"
+#if defined(USE_ROCM)
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -42,9 +43,9 @@
 #include <torch/csrc/jit/ir/irparser.h>
 #include <torch/torch.h>
 
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDAStream.h>
+#include <ATen/hip/HIPContext.h>
+#include <ATen/hip/Exceptions.h>
+#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
 
 #include <algorithm>
 #include <iostream>
@@ -3824,19 +3825,19 @@ void test_op(
   at::Tensor cg_output =
       gen_aten_operand(op, blocks, threads, /*rand*/ false).toTensor();
   std::vector<at::Tensor> output_vect = {cg_output};
-  cudaDeviceSynchronize();
+  hipDeviceSynchronize();
   if (fusion.isStochastic())
     at::manual_seed(0);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs_ivalues);
   fe.runFusion(aten_inputs_ivalues, output_vect);
-  cudaDeviceSynchronize();
+  hipDeviceSynchronize();
 
   if (fusion.isStochastic())
     at::manual_seed(0);
   at::Tensor aten_output = af(aten_inputs);
-  cudaDeviceSynchronize(); // This sync shouldn't be necessary;
+  hipDeviceSynchronize(); // This sync shouldn't be necessary;
 
   std::string op_msg = "Operation " + op_str;
 
@@ -7820,7 +7821,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerNoODimShmoo_CUDA) {
   //   error: no suitable user-defined conversion from
   //   "CudaCodeGen::std::complex<double>" to "CudaCodeGen::std::complex<float>"
   //   exists
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
+#if defined(TORCH_HIP_VERSION) && TORCH_HIP_VERSION >= 11000
   if (at::cuda::getDeviceProperties(0)->major >= 8) {
     dtypes.insert(dtypes.end(), DataType::BFloat16);
   }
@@ -7897,7 +7898,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
   // NVRTC compilation error:
   //   error: no instance of overloaded function "__shfl_xor_sync" matches the
   //   argument list
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
+#if defined(TORCH_HIP_VERSION) && TORCH_HIP_VERSION >= 11000
   if (at::cuda::getDeviceProperties(0)->major >= 8) {
     dtypes.insert(dtypes.end(), DataType::BFloat16);
   }
@@ -9982,4 +9983,4 @@ TEST_F(NVFuserTest, FusionSmemDynamicTiledGemm_CUDA) {
 
 } // namespace jit
 } // namespace torch
-#endif // #if defined(USE_CUDA)
+#endif // #if defined(USE_ROCM)

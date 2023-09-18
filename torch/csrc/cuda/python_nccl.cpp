@@ -10,7 +10,7 @@
 #include <torch/csrc/cuda/nccl.h>
 #include <torch/csrc/utils/pybind.h>
 
-#include <c10/cuda/CUDAGuard.h>
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
 #include <c10/util/irange.h>
 
 #include <sstream>
@@ -53,11 +53,11 @@ static void destroy_nccl_comm(PyObject* capsule) {
   END_HANDLE_TH_ERRORS_RET()
 }
 
-static std::vector<c10::optional<at::cuda::CUDAStream>> unpack_streams(
+static std::vector<c10::optional<at::hip::HIPStreamMasqueradingAsCUDA>> unpack_streams(
     PyObject* obj,
     size_t size) {
   if (obj == Py_None) {
-    return std::vector<c10::optional<at::cuda::CUDAStream>>(size, c10::nullopt);
+    return std::vector<c10::optional<at::hip::HIPStreamMasqueradingAsCUDA>>(size, c10::nullopt);
   }
   auto streams = THPUtils_PySequence_to_CUDAStreamList(obj);
   if (streams.size() != size) {
@@ -141,7 +141,7 @@ PyObject* THCPModule_nccl_reduce(PyObject* self, PyObject* args) {
 
   std::vector<at::Tensor> inputs = extract_tensors(_inputs);
   auto output = extract_tensor(_output);
-  std::vector<c10::optional<at::cuda::CUDAStream>> streams =
+  std::vector<c10::optional<at::hip::HIPStreamMasqueradingAsCUDA>> streams =
       unpack_streams(_streams, inputs.size());
   auto user_comms = unpack_comms(_comms, inputs.size());
 

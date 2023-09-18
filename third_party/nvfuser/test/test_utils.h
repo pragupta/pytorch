@@ -9,8 +9,8 @@
 #include <transform_replay.h>
 
 #include <ATen/Context.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/cuda/CUDACachingAllocator.h>
+#include <ATen/hip/HIPContext.h>
+#include <ATen/hip/impl/HIPCachingAllocatorMasqueradingAsCUDA.h>
 #include <torch/torch.h>
 
 #include <gtest/gtest.h>

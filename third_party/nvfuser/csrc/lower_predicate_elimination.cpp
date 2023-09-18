@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 #include <lower_predicate_elimination.h>
 
 #include <arith.h>

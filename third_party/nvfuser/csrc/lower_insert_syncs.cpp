@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 #include <dispatch.h>
 #include <instrumentation.h>
 #include <ir_utils.h>

@@ -28,7 +28,7 @@ namespace cuda {
 
 class LoadingNvfuserLibrary {
  public:
-#ifdef USE_CUDA
+#ifdef USE_ROCM
   LoadingNvfuserLibrary() {
     std::string library_name;
     if (const char* path = std::getenv("TORCH_NVFUSER_LIBRARY_PATH")) {
@@ -54,7 +54,7 @@ class LoadingNvfuserLibrary {
     }
   }
 
-#endif // USE_CUDA
+#endif // USE_ROCM
   std::shared_ptr<at::DynamicLibrary> nvfuserLib_;
 };
 

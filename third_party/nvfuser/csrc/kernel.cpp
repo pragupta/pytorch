@@ -5,7 +5,7 @@
 #include <kernel_ir_dispatch.h>
 #include <lower2device.h>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 
 #include <iostream>
 #include <unordered_set>

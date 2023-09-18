@@ -1,7 +1,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 #include <c10/util/Optional.h>
 
 #include <cstddef>
@@ -20,7 +20,7 @@
 
 namespace torch::cuda::nccl {
 
-/* The following are copied from <nccl.h> and redefined in torch::cuda::nccl
+/* The following are copied from <rccl/rccl.h> and redefined in torch::cuda::nccl
  * namespace */
 /* pytorch should only use the following definition within pytorch scope */
 
@@ -111,7 +111,7 @@ TORCH_CUDA_CPP_API void check_inputs(
 } // namespace detail
 
 using comm_list = std::vector<ncclComm_t>;
-using stream_list = std::vector<c10::optional<at::cuda::CUDAStream>>;
+using stream_list = std::vector<c10::optional<at::hip::HIPStreamMasqueradingAsCUDA>>;
 
 TORCH_CUDA_CPP_API std::uint64_t version();
 
@@ -162,7 +162,7 @@ TORCH_CUDA_CPP_API void scatter(
     const std::vector<at::Tensor>& inputs,
     at::Tensor& outputs,
     ncclComm_t comm,
-    at::cuda::CUDAStream& stream,
+    at::hip::HIPStreamMasqueradingAsCUDA& stream,
     int32_t root = 0);
 
 TORCH_CUDA_CPP_API void all_gather(
@@ -175,7 +175,7 @@ TORCH_CUDA_CPP_API void gather(
     const at::Tensor& inputs,
     std::vector<at::Tensor>& outputs,
     ncclComm_t comm,
-    at::cuda::CUDAStream& stream,
+    at::hip::HIPStreamMasqueradingAsCUDA& stream,
     int32_t root = 0);
 
 TORCH_CUDA_CPP_API void all2all_single_equal_split(
@@ -183,7 +183,7 @@ TORCH_CUDA_CPP_API void all2all_single_equal_split(
     at::Tensor& output,
     int size,
     ncclComm_t comm,
-    at::cuda::CUDAStream& stream);
+    at::hip::HIPStreamMasqueradingAsCUDA& stream);
 
 TORCH_CUDA_CPP_API void all2all_single_unequal_split(
     void* sendbuff,
@@ -195,23 +195,23 @@ TORCH_CUDA_CPP_API void all2all_single_unequal_split(
     size_t size,
     c10::ScalarType type,
     ncclComm_t comm,
-    at::cuda::CUDAStream& stream);
+    at::hip::HIPStreamMasqueradingAsCUDA& stream);
 
 TORCH_CUDA_CPP_API void all2all(
     std::vector<at::Tensor>& outputTensors,
     std::vector<at::Tensor>& inputTensors,
     ncclComm_t _comm,
-    at::cuda::CUDAStream& stream);
+    at::hip::HIPStreamMasqueradingAsCUDA& stream);
 
 TORCH_CUDA_CPP_API void send(
     const at::Tensor& input,
     ncclComm_t comm,
-    at::cuda::CUDAStream stream,
+    at::hip::HIPStreamMasqueradingAsCUDA stream,
     int dst);
 
 TORCH_CUDA_CPP_API void recv(
     at::Tensor& output,
     ncclComm_t comm,
-    at::cuda::CUDAStream stream,
+    at::hip::HIPStreamMasqueradingAsCUDA stream,
     int src);
 } // namespace torch::cuda::nccl

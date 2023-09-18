@@ -5,7 +5,7 @@
 #include <c10/core/DeviceType.h>
 #include <c10/util/Exception.h>
 
-#include <cuda.h>
+#include <hip/hip_runtime.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
@@ -50,8 +50,8 @@ TORCH_CUDA_CU_API ExpressionEvaluator
 bindFusionInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
 struct NvrtcFunction {
-  CUmodule module = CUmodule();
-  CUfunction function = CUfunction();
+  hipModule_t module = hipModule_t();
+  hipFunction_t function = hipFunction_t();
 };
 
 // Returns executable function and the ptxas log from compilation

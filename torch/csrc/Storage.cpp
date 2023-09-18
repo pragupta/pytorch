@@ -315,10 +315,10 @@ c10::intrusive_ptr<c10::StorageImpl> make_storage_impl(
     fptr = c10::GetStorageImplCreate(device.type());
     if (device.type() == at::kCPU) {
       allocator = c10::GetDefaultCPUAllocator();
-#ifdef USE_CUDA
+#ifdef USE_ROCM
     } else if (device.type() == at::kCUDA) {
       at::globalContext().lazyInitCUDA();
-      allocator = c10::cuda::CUDACachingAllocator::get();
+      allocator = c10::hip::HIPCachingAllocatorMasqueradingAsCUDA::get();
 #endif
 #ifdef USE_MPS
     } else if (device.type() == at::kMPS) {

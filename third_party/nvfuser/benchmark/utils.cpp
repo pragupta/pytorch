@@ -189,7 +189,7 @@ void runBenchmarkIterations(
     executor_instance->setMeasureKernelTimeFlag(true);
 
     // Sync everything up before we start
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
+    C10_HIP_CHECK(hipDeviceSynchronize());
     for (auto _ : benchmark_state) {
       clearL2Cache();
       auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
@@ -198,7 +198,7 @@ void runBenchmarkIterations(
     }
     // Sync everything up before we're finished, don't want to run ahead on the
     // cpu while benchmarking.
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
+    C10_HIP_CHECK(hipDeviceSynchronize());
   } else {
     // Segmented
     // Sync everything up before we start
@@ -206,7 +206,7 @@ void runBenchmarkIterations(
       // Compile/warmup
       auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
     }
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
+    C10_HIP_CHECK(hipDeviceSynchronize());
     CudaKernelTimer timer;
     for (auto _ : benchmark_state) {
       clearL2Cache();
@@ -216,7 +216,7 @@ void runBenchmarkIterations(
     }
     // Sync everything up before we're finished, don't want to run ahead on the
     // cpu while benchmarking.
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
+    C10_HIP_CHECK(hipDeviceSynchronize());
   }
 }
 

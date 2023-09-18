@@ -246,14 +246,14 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
  private:
   CompileOptions options_;
 
-  //! Current configured total shared mem size from cudaDeviceProp
+  //! Current configured total shared mem size from hipDeviceProp_t
   size_t configured_device_smem_ = std::numeric_limits<size_t>().max();
 
   //! Available shared memory space for dynamic allocation for the current
   //!  compiled kernel at the current shared memory/L1 configuration
   c10::optional<size_t> maybe_available_dynamic_smem_ = c10::nullopt;
 
-  //! Absolute limit of all available shared mem space from cudaDeviceProp
+  //! Absolute limit of all available shared mem space from hipDeviceProp_t
   size_t device_smem_limit_ = std::numeric_limits<size_t>().max();
 
   // Assuming sm70 or above:

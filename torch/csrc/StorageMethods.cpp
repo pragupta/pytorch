@@ -26,9 +26,9 @@
 #include <torch/csrc/utils/python_arg_parser.h>
 #include <torch/csrc/utils/python_numbers.h>
 
-#ifdef USE_CUDA
-#include <ATen/native/cuda/Resize.h>
-#include <cuda_runtime.h>
+#ifdef USE_ROCM
+#include <ATen/native/hip/Resize.h>
+#include <hip/hip_runtime.h>
 #endif
 
 #include <ATen/native/Resize.h>
@@ -136,7 +136,7 @@ static PyObject* THPStorage_resize_(PyObject* self, PyObject* number_arg) {
   c10::DeviceType device_type = storage.device_type();
   if (device_type == at::kCPU) {
     at::native::resize_bytes_cpu(storage.unsafeGetStorageImpl(), newsize);
-#ifdef USE_CUDA
+#ifdef USE_ROCM
   } else if (device_type == at::kCUDA) {
     ptrdiff_t size_bytes_i = newsize;
     TORCH_CHECK(

@@ -1,6 +1,6 @@
 #include <type.h>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 
 #include <stdexcept>
 #include <unordered_map>

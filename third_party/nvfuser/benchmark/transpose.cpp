@@ -9,7 +9,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include <benchmarks/cpp/nvfuser/utils.h>
 
@@ -430,7 +430,7 @@ static void Baseline_Transpose(
   }
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
-  cudaDeviceSynchronize();
+  hipDeviceSynchronize();
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

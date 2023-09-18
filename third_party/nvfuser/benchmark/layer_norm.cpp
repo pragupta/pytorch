@@ -9,7 +9,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include <benchmarks/cpp/nvfuser/utils.h>
 
@@ -103,14 +103,14 @@ static void Baseline_LayerNorm(
   at::Tensor bias = at::randn({input_shape[1]}, options);
 
   clearL2Cache();
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  C10_HIP_CHECK(hipDeviceSynchronize());
   for (auto _ : benchmark_state) {
     CudaKernelTimer timer;
     auto output = at::layer_norm(input, norm_shape, weight, bias);
     benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
+    C10_HIP_CHECK(hipDeviceSynchronize());
     clearL2Cache();
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
+    C10_HIP_CHECK(hipDeviceSynchronize());
   }
 
   benchmark_state.SetBytesProcessed(

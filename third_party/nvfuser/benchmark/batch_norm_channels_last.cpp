@@ -9,7 +9,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include <benchmarks/cpp/nvfuser/utils.h>
 
@@ -149,7 +149,7 @@ static void Baseline_BatchNorm_nhwc(
       true);
 
   clearL2Cache();
-  cudaDeviceSynchronize();
+  hipDeviceSynchronize();
   for (auto _ : benchmark_state) {
     CudaKernelTimer timer;
     at::_ops::_batch_norm_impl_index::call(
@@ -164,9 +164,9 @@ static void Baseline_BatchNorm_nhwc(
         true);
 
     benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
-    cudaDeviceSynchronize();
+    hipDeviceSynchronize();
     clearL2Cache();
-    cudaDeviceSynchronize();
+    hipDeviceSynchronize();
   }
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

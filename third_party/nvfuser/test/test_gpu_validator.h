@@ -6,7 +6,7 @@
 #include <ir_iostream.h>
 #include <lower_utils.h>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 
 #include <unordered_map>
 

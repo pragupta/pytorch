@@ -155,20 +155,20 @@ class EnterCudaDeviceContextManagerLine:
                 # In AOT mode, we have a stream provided as a param. A stream is
                 # associated with a device, so we never expect the device to change.
                 assert self.first_time
-                # CUDAStreamGuard sets the stream and the device.
+                # HIPStreamGuardMasqueradingAsCUDA sets the stream and the device.
                 if config.aot_inductor.abi_compatible:
                     code.writeline(
                         f"AOTICudaStreamGuard stream_guard(stream, {self.device_idx});"
                     )
                 else:
                     code.writeline(
-                        "at::cuda::CUDAStreamGuard stream_guard("
-                        + f"at::cuda::getStreamFromExternal(stream, {self.device_idx}));"
+                        "at::hip::HIPStreamGuardMasqueradingAsCUDA stream_guard("
+                        + f"at::hip::getStreamFromExternalMasqueradingAsCUDA(stream, {self.device_idx}));"
                     )
             else:
                 if self.first_time:
                     code.writeline(
-                        f"at::cuda::CUDAGuard device_guard({self.device_idx});"
+                        f"at::hip::HIPGuardMasqueradingAsCUDA device_guard({self.device_idx});"
                     )
                 else:
                     code.writeline(f"device_guard.set_index({self.device_idx});")
@@ -1071,7 +1071,7 @@ class CppWrapperCodeGen(WrapperCodeGen):
                 void AOTInductorModel::run_impl(
                     std::vector<at::Tensor>& args,
                     std::vector<at::Tensor>& outputs,
-                    cudaStream_t stream,
+                    hipStream_t stream,
                     ProxyExecutor* proxy_executor) {
                 """
             )
@@ -1838,8 +1838,8 @@ class CudaWrapperCodeGen(CppWrapperCodeGen):
                 """
                 #include <ATen/ATen.h>
                 #include <ATen/native/BinaryOps.h>
-                #include <c10/cuda/CUDAGuard.h>
-                #include <c10/cuda/CUDAStream.h>
+                #include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
+                #include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
                 """
             )
 
@@ -1847,10 +1847,10 @@ class CudaWrapperCodeGen(CppWrapperCodeGen):
             """
             #define CUDA_DRIVER_CHECK(EXPR)                    \\
             do {                                               \\
-                CUresult code = EXPR;                          \\
+                hipError_t code = EXPR;                          \\
                 const char *msg;                               \\
-                cuGetErrorString(code, &msg);                  \\
-                if (code != CUDA_SUCCESS) {                    \\
+                hipGetErrorString(code, &msg);                  \\
+                if (code != hipSuccess) {                    \\
                     throw std::runtime_error(                  \\
                         std::string("CUDA driver error: ") +   \\
                         std::string(msg));                     \\
@@ -1869,18 +1869,18 @@ class CudaWrapperCodeGen(CppWrapperCodeGen):
 
             }  // anonymous namespace
 
-            static inline CUfunction loadKernel(
+            static inline hipFunction_t loadKernel(
                     const std::string &filePath,
                     const std::string &funcName,
                     uint32_t sharedMemBytes) {
-                CUmodule mod;
-                CUfunction func;
-                CUDA_DRIVER_CHECK(cuModuleLoad(&mod, filePath.c_str()));
-                CUDA_DRIVER_CHECK(cuModuleGetFunction(&func, mod, funcName.c_str()));
+                hipModule_t mod;
+                hipFunction_t func;
+                CUDA_DRIVER_CHECK(hipModuleLoad(&mod, filePath.c_str()));
+                CUDA_DRIVER_CHECK(hipModuleGetFunction(&func, mod, funcName.c_str()));
                 if (sharedMemBytes > 0) {
-                    CUDA_DRIVER_CHECK(cuFuncSetAttribute(
+                    CUDA_DRIVER_CHECK(hipFuncSetAttribute(
                         func,
-                        CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                        hipFuncAttributeMaxDynamicSharedMemorySize,
                         sharedMemBytes
                     ))
                 }
@@ -1888,15 +1888,15 @@ class CudaWrapperCodeGen(CppWrapperCodeGen):
             }
 
             static inline void launchKernel(
-                    CUfunction func,
+                    hipFunction_t func,
                     uint32_t gridX,
                     uint32_t gridY,
                     uint32_t gridZ,
                     uint32_t numWarps,
                     uint32_t sharedMemBytes,
                     void* args[],
-                    cudaStream_t stream) {
-                CUDA_DRIVER_CHECK(cuLaunchKernel(
+                    hipStream_t stream) {
+                CUDA_DRIVER_CHECK(hipModuleLaunchKernel(
                     func, gridX, gridY, gridZ, 32*numWarps, 1, 1, sharedMemBytes, stream, args, nullptr
                 ));
             }
@@ -1906,7 +1906,7 @@ class CudaWrapperCodeGen(CppWrapperCodeGen):
     def write_get_cuda_stream(self, index):
         name = f"stream{index}"
         self.writeline(
-            f"cudaStream_t {name} = at::cuda::getCurrentCUDAStream({index});"
+            f"hipStream_t {name} = at::hip::getCurrentHIPStreamMasqueradingAsCUDA({index});"
         )
         return name
 
@@ -1919,7 +1919,7 @@ class CudaWrapperCodeGen(CppWrapperCodeGen):
     def generate(self):
         self.prefix.writeline("\n")
         for kernel in self.src_to_kernel.values():
-            self.prefix.writeline(f"static CUfunction {kernel} = nullptr;")
+            self.prefix.writeline(f"static hipFunction_t {kernel} = nullptr;")
         self.prefix.writeline("\n")
         return super().generate()
 
@@ -1981,13 +1981,13 @@ class CudaWrapperCodeGen(CppWrapperCodeGen):
                 self.writeline(f"auto {var_name} = {arg};")
             else:
                 if config.aot_inductor.abi_compatible:
-                    self.writeline(f"CUdeviceptr {var_name};")
+                    self.writeline(f"hipDeviceptr_t {var_name};")
                     self.writeline(
                         f"AOTI_TORCH_ERROR_CHECK(aoti_torch_get_data_ptr(reinterpret_cast<void**>(&{var_name}), {arg}.get()));"
                     )
                 else:
                     self.writeline(
-                        f"CUdeviceptr {var_name} = reinterpret_cast<CUdeviceptr>({arg}.data_ptr());"
+                        f"hipDeviceptr_t {var_name} = reinterpret_cast<hipDeviceptr_t>({arg}.data_ptr());"
                     )
             new_args.append(f"&{var_name}")
 

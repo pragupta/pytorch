@@ -1,6 +1,6 @@
 #include <executor_launch_params.h>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 
 namespace torch {
 namespace jit {

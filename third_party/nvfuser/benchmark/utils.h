@@ -11,10 +11,10 @@
 
 #include <benchmark/benchmark.h>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 #include <torch/torch.h>
 
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 using namespace torch::jit::fuser::cuda;
 
@@ -56,35 +56,35 @@ class CudaKernelTimer {
  public:
   CudaKernelTimer() {
     // Setup
-    C10_CUDA_CHECK(cudaEventCreate(&start_event));
-    C10_CUDA_CHECK(cudaEventCreate(&finish_event));
-    C10_CUDA_CHECK(cudaEventRecord(start_event));
+    C10_HIP_CHECK(hipEventCreate(&start_event));
+    C10_HIP_CHECK(hipEventCreate(&finish_event));
+    C10_HIP_CHECK(hipEventRecord(start_event));
   }
 
   ~CudaKernelTimer() {
-    C10_CUDA_IGNORE_ERROR(cudaEventDestroy(start_event));
-    C10_CUDA_IGNORE_ERROR(cudaEventDestroy(finish_event));
+    C10_HIP_IGNORE_ERROR(hipEventDestroy(start_event));
+    C10_HIP_IGNORE_ERROR(hipEventDestroy(finish_event));
   }
 
   void restart() {
-    C10_CUDA_CHECK(cudaEventRecord(start_event));
+    C10_HIP_CHECK(hipEventRecord(start_event));
   }
 
   float elapsed() {
     // Record
-    C10_CUDA_CHECK(cudaEventRecord(finish_event));
-    C10_CUDA_CHECK(cudaEventSynchronize(start_event));
-    C10_CUDA_CHECK(cudaEventSynchronize(finish_event));
-    C10_CUDA_CHECK(
-        cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
+    C10_HIP_CHECK(hipEventRecord(finish_event));
+    C10_HIP_CHECK(hipEventSynchronize(start_event));
+    C10_HIP_CHECK(hipEventSynchronize(finish_event));
+    C10_HIP_CHECK(
+        hipEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
     return kernel_time_ms_;
   }
 
  private:
   // Create
   float kernel_time_ms_ = 0;
-  cudaEvent_t start_event = {};
-  cudaEvent_t finish_event = {};
+  hipEvent_t start_event = {};
+  hipEvent_t finish_event = {};
 };
 
 namespace executorCache {

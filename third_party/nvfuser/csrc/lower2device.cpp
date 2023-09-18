@@ -1,6 +1,6 @@
 #include <lower2device.h>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <instrumentation.h>

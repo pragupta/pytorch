@@ -8,7 +8,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include <benchmarks/cpp/nvfuser/utils.h>
 
@@ -165,7 +165,7 @@ static void Baseline_InstanceNorm(
   auto ato_running_var = c10::optional<at::Tensor>(at_var);
 
   clearL2Cache();
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  C10_HIP_CHECK(hipDeviceSynchronize());
   for (auto _ : benchmark_state) {
     CudaKernelTimer timer;
 
@@ -182,9 +182,9 @@ static void Baseline_InstanceNorm(
     auto output = at::relu(norm);
 
     benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
+    C10_HIP_CHECK(hipDeviceSynchronize());
     clearL2Cache();
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
+    C10_HIP_CHECK(hipDeviceSynchronize());
   }
 
   const size_t kChannels = benchmark_state.range(2);

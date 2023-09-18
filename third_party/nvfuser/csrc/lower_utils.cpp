@@ -1,6 +1,6 @@
 #include <lower_utils.h>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 #include <c10/util/irange.h>
 #include <arith.h>
 #include <ir_iostream.h>

@@ -13,7 +13,7 @@
 #include <transform_replay.h>
 #include <utils.h>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/hip/HIPContext.h>
 
 #include <algorithm>
 
