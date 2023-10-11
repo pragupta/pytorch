@@ -6,7 +6,7 @@
 
 set -ex
 
-echo "Environment variables:"
+echo "Environment variables: "
 env
 
 TORCH_INSTALL_DIR=$(python -c "import site; print(site.getsitepackages()[0])")/torch
