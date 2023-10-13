@@ -1,10 +1,17 @@
-
+message(WARNING "PG in aot_inductor cmake with USE_ROCM=${USE_ROCM}")
 set(AOT_INDUCTOR_TEST_ROOT ${TORCH_ROOT}/test/cpp/aot_inductor)
 
 # Build the cpp gtest binary containing the cpp-only tests.
-set(INDUCTOR_TEST_SRCS
-  ${AOT_INDUCTOR_TEST_ROOT}/test.cpp
-)
+if (USE_CUDA)
+  set(INDUCTOR_TEST_SRCS
+    ${AOT_INDUCTOR_TEST_ROOT}/test.cpp
+  )
+elseif (USE_ROCM)
+  set(INDUCTOR_TEST_SRCS
+    ${AOT_INDUCTOR_TEST_ROOT}/hip/test.cpp
+  )
+endif()
+
 
 add_executable(test_aot_inductor
   ${TORCH_ROOT}/test/cpp/common/main.cpp
@@ -30,6 +37,8 @@ target_link_libraries(test_aot_inductor PRIVATE
   ${CMAKE_CURRENT_BINARY_DIR}/libaot_inductor_output.so
 )
 
+target_include_directories(test_aot_inductor PRIVATE ${ATen_CUDA_INCLUDE})
+
 if(USE_CUDA)
   target_link_libraries(test_aot_inductor PRIVATE
     ${C10_CUDA_BUILD_SHARED_LIBS}
@@ -39,9 +48,17 @@ if(USE_CUDA)
     ${TORCH_CUDA_LIBRARIES}
   )
 
-  target_include_directories(test_aot_inductor PRIVATE ${ATen_CUDA_INCLUDE})
 
   target_compile_definitions(test_aot_inductor PRIVATE USE_CUDA)
+elseif(USE_ROCM)
+    message(WARNING "PG in aot_inductor inside USE_ROCM=${USE_ROCM} branch")
+    target_link_libraries(test_aot_inductor PRIVATE
+        ${C10_HIP_BUILD_SHARED_LIBS}
+        ${ROCM_HIPRTC_LIB}
+        ${PYTORCH_HIP_HCC_LIBRARIES}
+        ${TORCH_CUDA_LIBRARIES}
+        )
+    target_compile_definitions(test_aot_inductor PRIVATE USE_ROCM)
 endif()
 
 if(INSTALL_TEST)

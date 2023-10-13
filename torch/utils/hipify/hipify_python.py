@@ -632,6 +632,8 @@ def is_pytorch_file(rel_filepath):
         return True
     if rel_filepath.startswith("tools/autograd/templates/"):
         return True
+    if rel_filepath.startswith("test/cpp/"):
+        return True
     return False
 
 
