@@ -7,6 +7,8 @@
 
 #if !defined(USE_ROCM) && defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
 #include <c10/cuda/driver_api.h>
+#else
+#include <c10/hip/driver_api.h>
 #endif
 
 #include <sys/socket.h>
@@ -169,7 +171,7 @@ void map_block(
     c10d::symmetric_memory::HandleType handle,
     size_t size,
     int device_idx) {
-#if !defined(USE_ROCM) && defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
+#if defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
   auto driver_api = c10::cuda::DriverAPI::get();
   auto dev_ptr = reinterpret_cast<CUdeviceptr*>(ptr);
   C10_CUDA_DRIVER_CHECK(
@@ -224,7 +226,7 @@ CUDASymmetricMemory::CUDASymmetricMemory(
 }
 
 CUDASymmetricMemory::~CUDASymmetricMemory() {
-#if !defined(USE_ROCM) && defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
+#if defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
   // Leak the cuda allocations during static deinitialization
   if (is_finalizing()) {
     return;
@@ -313,7 +315,7 @@ void check_channel(int channel, int world_size) {
 }
 
 __device__ __forceinline__ void release_signal(uint32_t* addr) {
-#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   CUDA_KERNEL_ASSERT(false);
 #else
   volatile uint32_t* signal = addr;
@@ -325,7 +327,7 @@ __device__ __forceinline__ void release_signal(uint32_t* addr) {
 }
 
 __device__ __forceinline__ void acquire_signal(uint32_t* addr) {
-#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   CUDA_KERNEL_ASSERT(false);
 #else
   volatile uint32_t* signal = addr;
@@ -418,7 +420,7 @@ void* CUDASymmetricMemoryAllocator::alloc(
     size_t size,
     int device_idx,
     const std::string& group_name) {
-#if !defined(USE_ROCM) && defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
+#if defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
   auto driver_api = c10::cuda::DriverAPI::get();
 
   CUmemAllocationProp prop = {};
@@ -460,7 +462,7 @@ void* CUDASymmetricMemoryAllocator::alloc(
 }
 
 void CUDASymmetricMemoryAllocator::free(void* ptr) {
-#if !defined(USE_ROCM) && defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
+#if defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
   auto block = find_block(ptr);
   // Leak the cuda allocations during static deinitialization
   if (block == nullptr || is_finalizing()) {
@@ -528,7 +530,7 @@ void validate_rendezvous_requests(
 
 c10::intrusive_ptr<SymmetricMemory> CUDASymmetricMemoryAllocator::rendezvous(
     void* ptr) {
-#if !defined(USE_ROCM) && defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
+#if defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
   auto block = find_block(ptr);
   TORCH_CHECK(
       block != nullptr,

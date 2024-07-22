@@ -18,6 +18,20 @@
     }                                                                      \
   } while (0)
 
+#if defined(USE_ROCM)
+#define C10_LIBHIP_DRIVER_API(_)   \
+  _(hipMemAddressReserve)            \
+  _(hipMemRelease)                   \
+  _(hipMemMap)                       \
+  _(hipMemAddressFree)               \
+  _(hipMemSetAccess)                 \
+  _(hipMemUnmap)                     \
+  _(hipMemCreate)                    \
+  _(hipMemGetAllocationGranularity)  \
+  _(hipMemExportToShareableHandle)   \
+  _(hipMemImportFromShareableHandle) \
+  _(hipDrvGetErrorString)
+#else
 #define C10_LIBCUDA_DRIVER_API(_)   \
   _(cuMemAddressReserve)            \
   _(cuMemRelease)                   \
@@ -30,6 +44,7 @@
   _(cuMemExportToShareableHandle)   \
   _(cuMemImportFromShareableHandle) \
   _(cuGetErrorString)
+#endif
 
 #define C10_NVML_DRIVER_API(_)           \
   _(nvmlInit_v2)                         \
@@ -43,7 +58,9 @@ namespace c10::cuda {
 struct DriverAPI {
 #define CREATE_MEMBER(name) decltype(&name) name##_;
   C10_LIBCUDA_DRIVER_API(CREATE_MEMBER)
+#if !(defined USE_ROCM)
   C10_NVML_DRIVER_API(CREATE_MEMBER)
+#endif
 #undef CREATE_MEMBER
   static DriverAPI* get();
   static void* get_nvml_handle();

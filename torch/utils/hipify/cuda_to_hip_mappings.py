@@ -3896,6 +3896,18 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
         ("cudaPeekAtLastError", ("hipPeekAtLastError", CONV_ERROR, API_RUNTIME)),
         ("cudaGetErrorName", ("hipGetErrorName", CONV_ERROR, API_RUNTIME)),
         ("cudaGetErrorString", ("hipGetErrorString", CONV_ERROR, API_RUNTIME)),
+
+        ("cuMemAddressReserve_", ("hipMemAddressReserve_", CONV_MEM, API_RUNTIME)),
+        ("cuMemRelease_", ("hipMemRelease_", CONV_MEM, API_RUNTIME)),
+        ("cuMemMap_", ("hipMemMap_", CONV_MEM, API_RUNTIME)),
+        ("cuMemAddressFree_", ("hipMemAddressFree_", CONV_MEM, API_RUNTIME)),
+        ("cuMemSetAccess_", ("hipMemSetAccess_", CONV_MEM, API_RUNTIME)),
+        ("cuMemUnmap_", ("hipMemUnmap_", CONV_MEM, API_RUNTIME)),
+        ("cuMemCreate_", ("hipMemCreate_", CONV_MEM, API_RUNTIME)),
+        ("cuMemGetAllocationGranularity_", ("hipMemGetAllocationGranularity_", CONV_MEM, API_RUNTIME)),
+        ("cuMemExportToShareableHandle_", ("hipMemExportToShareableHandle_", CONV_MEM, API_RUNTIME)),
+        ("cuMemImportFromShareableHandle_", ("hipMemImportFromShareableHandle_", CONV_MEM, API_RUNTIME)),
+
         ("cudaMemcpy3DParms", ("hipMemcpy3DParms", CONV_MEM, API_RUNTIME)),
         (
             "cudaMemcpy3DPeerParms",
