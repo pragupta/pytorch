@@ -9,7 +9,7 @@ namespace c10d::symmetric_memory {
 #if !defined(USE_ROCM) && defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
 using HandleType = CUmemGenericAllocationHandle;
 #else
-using HandleType = void*;
+using HandleType = hipMemGenericAllocationHandle_t;
 #endif
 
 class CUDASymmetricMemory : public SymmetricMemory {
