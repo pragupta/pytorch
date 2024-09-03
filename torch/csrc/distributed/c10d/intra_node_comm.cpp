@@ -23,6 +23,7 @@ static int intraNodeCommIdx = 0;
  * Query the nvlink connection among devices.
  */
 static NvlMesh getNvlMesh(const std::vector<int>& rankToDeviceIdx) {
+#if defined(USE_ROCM)
   auto connectivity = detect_dma_connectivity(c10::DeviceType::CUDA, "nvlink");
   NvlMesh nvlMesh = {};
   for (size_t srcRank = 0; srcRank < kMaxDevices; ++srcRank) {
@@ -36,6 +37,31 @@ static NvlMesh getNvlMesh(const std::vector<int>& rankToDeviceIdx) {
     }
   }
   return nvlMesh;
+#else
+  NvlMesh nvlMesh = {};
+  const auto worldSize = rankToBusId.size();
+  // For each device, loop over devices connected to it
+  for (size_t idx = 0; idx < worldSize; ++idx) {
+    for (size_t link = 0; link < kMaxDevices; ++link) {
+      if (idx == link)
+        continue;
+
+      bool conn = false;
+      auto ret = rsmi_is_P2P_accessible(idx, link, &conn);
+      if (ret != RSMI_STATUS_SUCCESS) {
+        LOG(ERROR)
+            << "IntraNodeComm: getNvlMesh: rsmi_is_P2P_accessible returned error ret="
+            << ret;
+        return {};
+      }
+
+      if (conn) {
+        nvlMesh[idx][link] += 1;
+      }
+    }
+  }
+  return nvlMesh;
+#endif
 }
 
 /**
