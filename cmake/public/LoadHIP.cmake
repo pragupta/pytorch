@@ -168,7 +168,7 @@ if(HIP_FOUND)
   find_package_and_print_version(hiprtc REQUIRED)
 
 
-  find_library(PYTORCH_HIP_LIBRARIES amdhip64 HINTS ${ROCM_PATH}/lib)
+  find_library(PYTORCH_HIP_LIBRARIES amdhip64 HINTS ${ROCM_PATH}/lib/asan ${ROCM_PATH}/lib)
   # TODO: miopen_LIBRARIES should return fullpath to the library file,
   # however currently it's just the lib name
   if(TARGET ${miopen_LIBRARIES})
@@ -183,7 +183,7 @@ if(HIP_FOUND)
   else()
     find_library(PYTORCH_RCCL_LIBRARIES ${rccl_LIBRARIES} HINTS ${ROCM_PATH}/lib)
   endif()
-  find_library(ROCM_HIPRTC_LIB hiprtc HINTS ${ROCM_PATH}/lib)
+  find_library(ROCM_HIPRTC_LIB hiprtc HINTS ${ROCM_PATH}/lib/asan ${ROCM_PATH}/lib)
   # roctx is part of roctracer
   find_library(ROCM_ROCTX_LIB roctx64 HINTS ${ROCM_PATH}/lib)
 

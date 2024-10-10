@@ -49,6 +49,14 @@ if(NOT BUILD_LIBTORCHLESS)
 
   # ---[ Dependency of c10_hip
   target_link_libraries(c10_hip PUBLIC ${C10_LIB} hip::amdhip64)
+  target_link_libraries(c10_hip PUBLIC /opt/rocm/lib/asan/libamdhip64.so)
+  target_link_libraries(c10_hip PUBLIC /opt/rocm/lib/asan/libhsa-runtime64.so)
+  target_link_libraries(c10_hip PUBLIC /opt/rocm/lib/asan/librocm-core.so)
+  target_link_libraries(c10_hip PUBLIC /opt/rocm/lib/asan/libamd_comgr.so)
+  target_link_libraries(c10_hip PUBLIC /opt/rocm/lib/asan/libhiprtc-builtins.so)
+  target_link_libraries(c10_hip PUBLIC /opt/rocm/lib/asan/libhiprtc.so)
+  target_link_libraries(c10_hip PUBLIC /opt/rocm/llvm/lib/clang/18/lib/linux/libclang_rt.asan-x86_64.so)
+  target_link_libraries(c10_hip PUBLIC ${PYTORCH_HIP_LIBRARIES})
 
   target_include_directories(
       c10_hip PUBLIC
