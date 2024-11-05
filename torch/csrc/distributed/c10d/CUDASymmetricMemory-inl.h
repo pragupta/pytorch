@@ -5,7 +5,7 @@
 #endif
 
 #include <ATen/ATen.h>
-#if !defined(USE_ROCM)
+#if defined(USE_CUDA)
 #include <cuda_bf16.h>
 #endif
 namespace c10d::symmetric_memory {
@@ -48,18 +48,53 @@ enum class MemOpSem {
   AcqRel,
 };
 
+#if defined(USE_ROCM)
+#define CAS_RELAXED(addr, compare, val, old_val) \
+  asm volatile("buffer_atomic_cmpswap %0, %2, %3, %1 idxen;" \
+               : "=v"(old_val)                              \
+               : "v"(addr), "v"(compare), "v"(val)          \
+               : "memory");
+
+
+#define CAS_ACQUIRE(addr, compare, val, old_val)                \
+    asm volatile("buffer_atomic_cmpswap %0, %2, %3, %1 idxen;"  \
+                 "s_waitcnt vmcnt(0);"   /* Ensure acquire ordering */ \
+                 : "=v"(old_val)                                \
+                 : "v"(addr), "v"(compare), "v"(val)            \
+                 : "memory");                                   \
+
+#define CAS_RELEASE(addr, compare, val, old_val)                \
+    asm volatile("s_waitcnt vmcnt(0);"  /* Ensure release ordering */ \
+                 "buffer_atomic_cmpswap %0, %2, %3, %1 idxen;"  \
+                 : "=v"(old_val)                                \
+                 : "v"(addr), "v"(compare), "v"(val)            \
+                 : "memory");                                   \
+#else
 #define CAS_ASM(addr, compare, val, old_val, sem)                 \
   asm volatile("atom.global" sem ".sys.cas.b32 %0, [%1], %2, %3;" \
                : "=r"(old_val)                                    \
                : "l"(addr), "r"(compare), "r"(val)                \
                : "memory");
+#endif
 
 template <MemOpSem Sem>
 __device__ __forceinline__ uint32_t
 cas(uint32_t* addr, uint32_t compare, uint32_t val) {
-#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   CUDA_KERNEL_ASSERT(false);
   return 0;
+#elif defined(USE_ROCM)
+  uint32_t old_val;
+  if constexpr (Sem == MemOpSem::Relaxed) {
+    CAS_RELAXED(addr, compare, val, old_val);
+  } else if constexpr (Sem == MemOpSem::Acquire) {
+    CAS_ACQUIRE(addr, compare, val, old_val);
+  } else if constexpr (Sem == MemOpSem::Release) {
+    CAS_RELEASE(addr, compare, val, old_val);
+  } else {
+    static_assert(dependent_false_nt<Sem>);
+  }
+  return old_val;
 #else
   uint32_t old_val;
   if constexpr (Sem == MemOpSem::Relaxed) {
@@ -76,22 +111,18 @@ cas(uint32_t* addr, uint32_t compare, uint32_t val) {
 }
 
 __device__ __forceinline__ void trap() {
-#if defined(USE_ROCM)
-  assert(0);
-#else
   __trap();
-#endif
 }
 
 __device__ __forceinline__ size_t global_timer_ns() {
-#if defined(USE_ROCM)
-  CUDA_KERNEL_ASSERT(false);
-  return 0;
-#else
   size_t val;
+#if defined(USE_ROCM)
+  //ROCm doesn't have global timer, but we can read the shader clock through this instruction
+  asm volatile("s_memtime %0;" : "=v"(val) : : "memory");
+#else
   asm volatile("mov.u64 %0, %globaltimer;" : "=l"(val) : : "memory");
-  return val;
 #endif
+  return val;
 }
 
 constexpr size_t ns_per_ms = 1e6;
@@ -309,10 +340,29 @@ __device__ __inline__ void multimem_st(T* mc_ptr, Vec<Alignment>& vec) {
 
 template <int Alignment, typename T>
 __device__ __inline__ Vec<Alignment> ld_vec(const T* addr) {
-#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
-  CUDA_KERNEL_ASSERT(false);
-#else
   Vec<Alignment> vec;
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
+  CUDA_KERNEL_ASSERT(false);
+#elif defined(USE_ROCM)
+  if constexpr (Alignment == 16) {
+    asm volatile("buffer_load_dwordx4 %0, %1, 0, 0, 0 glc;"
+				 : "=v4"(vec.u32[0], vec.u32[1], vec.u32[2], vec.u32[3])
+				 : "v"(addr)
+				 : "memory");
+  } else if constexpr (Alignment == 8) {
+    asm volatile("buffer_load_dwordx2 %0, %1, 0, 0, 0 glc;"
+				 : "=v2"(vec.u32[0], vec.u32[1])
+				 : "v"(addr)
+				 : "memory");
+  } else if constexpr (Alignment == 4) {
+	asm volatile("buffer_load_dword %0, %1, 0, 0, 0 glc;"
+				 : "=v"(vec.u32)
+				 : "v"(addr)
+				 : "memory");
+  } else {
+	static_assert(dependent_false<T>);
+  }
+#else
   if constexpr (Alignment == 16) {
     asm("ld.global.v4.u32 {%0,%1,%2,%3}, [%4];"
         : "=r"(vec.u32[0]), "=r"(vec.u32[1]), "=r"(vec.u32[2]), "=r"(vec.u32[3])
@@ -328,14 +378,35 @@ __device__ __inline__ Vec<Alignment> ld_vec(const T* addr) {
   } else {
     static_assert(dependent_false<T>);
   }
-  return vec;
 #endif
+  return vec;
 }
 
 template <int Alignment, typename T>
 __device__ __inline__ void st_vec(T* addr, const Vec<Alignment>& vec) {
-#if defined(USE_ROCM) || !defined(NVCC_SUPPORTS_MULTICAST)
+#if !defined(NVCC_SUPPORTS_MULTICAST)
   CUDA_KERNEL_ASSERT(false);
+#elif defined(USE_ROCM)
+  if constexpr (Alignment == 16) {
+    asm volatile("buffer_store_dwordx4 %0, %1, 0, 0, 0 glc;"
+                 : 
+                 : "v"(addr),
+                   "v4"(vec.u32[0], vec.u32[1], vec.u32[2], vec.u32[3])
+                 : "memory");
+  } else if constexpr (Alignment == 8) {
+    asm volatile("buffer_store_dwordx2 %0, %1, 0, 0, 0 glc;"
+                 : 
+                 : "v"(addr),
+                   "v2"(vec.u32[0], vec.u32[1])
+                 : "memory");
+  } else if constexpr (Alignment == 4) {
+    asm volatile("buffer_store_dword %0, %1, 0, 0, 0 glc;"
+                 : 
+                 : "v"(addr), "v"(vec.u32)
+                 : "memory");
+  } else {
+    static_assert(dependent_false<T>);
+  }
 #else
   if constexpr (Alignment == 16) {
     asm("st.global.v4.u32 [%0], {%1,%2,%3,%4};"
@@ -359,14 +430,12 @@ __device__ __inline__ void st_vec(T* addr, const Vec<Alignment>& vec) {
 #endif
 }
 
-#if defined(USE_ROCM)
 using __nv_bfloat162 = uint32_t;
-#endif
 
 template <typename T>
 __device__ __inline__ T add_bf16x2(T a, T b) {
   static_assert(sizeof(T) == 4);
-#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   CUDA_KERNEL_ASSERT(false);
   return T{};
 #else
