@@ -3,7 +3,11 @@
 #include <torch/csrc/distributed/c10d/DMAConnectivity.hpp>
 #include <torch/csrc/distributed/c10d/Utils.hpp>
 
-// #include <cuda_runtime.h>
+// #include <hip/hip_runtime.h>
+
+#if defined(USE_ROCM)
+#include <rocm_smi/rocm_smi.h>
+#endif
 
 namespace c10d::intra_node_comm {
 
@@ -23,7 +27,7 @@ static int intraNodeCommIdx = 0;
  * Query the nvlink connection among devices.
  */
 static NvlMesh getNvlMesh(const std::vector<int>& rankToDeviceIdx) {
-#if defined(USE_ROCM)
+#if !defined(USE_ROCM)
   auto connectivity = detect_dma_connectivity(c10::DeviceType::CUDA, "nvlink");
   NvlMesh nvlMesh = {};
   for (size_t srcRank = 0; srcRank < kMaxDevices; ++srcRank) {
@@ -63,6 +67,7 @@ static NvlMesh getNvlMesh(const std::vector<int>& rankToDeviceIdx) {
   return nvlMesh;
 #endif
 }
+
 
 /**
  * Detech topology given a NvlMesh.
@@ -155,9 +160,7 @@ bool IntraNodeComm::rendezvous() {
   if (isInitialized_) {
     return true;
   }
-#if !defined(USE_ROCM) && defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
-  if (!isIntraNodeCommSupported() || worldSize_ < 2 ||
-      worldSize_ > kMaxDevices) {
+  if (!isIntraNodeCommSupported() || worldSize_ < 2 || worldSize_ > kMaxDevices) {
     return false;
   }
 
@@ -214,8 +217,6 @@ bool IntraNodeComm::rendezvous() {
   symmetricMemory_ = allocator->rendezvous(symmetricMemoryPtr_);
   isInitialized_ = true;
   return true;
-#endif
-  return false;
 }
 
 } // namespace c10d::intra_node_comm

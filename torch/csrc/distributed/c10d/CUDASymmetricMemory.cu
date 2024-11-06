@@ -18,7 +18,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#if defined(CUDART_VERSION) && CUDART_VERSION >= 12030
+#if !defined(USE_ROCM) || (defined(CUDART_VERSION) && CUDART_VERSION >= 12030)
 #define CUDART_SUPPORTS_MULTICAST
 #endif
 
@@ -633,6 +633,12 @@ void CUDASymmetricMemory::stream_write_value32(uintptr_t addr, uint32_t val) {
       reinterpret_cast<CUdeviceptr>((void*)addr),
       val,
       0);
+#elif defined(USE_ROCM)
+  C10_HIP_CHECK(hipStreamWriteValue32(
+      at::hip::getCurrentHIPStreamMasqueradingAsCUDA(),
+      reinterpret_cast<void*>(addr),
+      val,
+      0));
 #else
   TORCH_CHECK(
       false, "CUDASymmetricMemory requires PYTORCH_C10_DRIVER_API_SUPPORTED");
