@@ -59,9 +59,24 @@ enum class MemOpSem {
 template <MemOpSem Sem>
 __device__ __forceinline__ uint32_t
 cas(uint32_t* addr, uint32_t compare, uint32_t val) {
-#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))
   CUDA_KERNEL_ASSERT(false);
   return 0;
+#elif defined(USE_ROCM)
+
+  uint32_t old_val;
+  if constexpr (Sem == MemOpSem::Relaxed) {
+    old_val = atomicCAS(addr,compare,val);
+  } else if constexpr (Sem == MemOpSem::Acquire) {
+    old_val = atomicCAS(addr,compare,val);
+    asm volatile ("s_waitcnt vmcnt(0);");
+  } else if constexpr (Sem == MemOpSem::Release) {
+    asm volatile ("s_waitcnt vmcnt(0);");
+    old_val = atomicCAS(addr,compare,val);
+  } else {
+    static_assert(dependent_false_nt<Sem>);
+  }
+  return old_val;
 #else
   uint32_t old_val;
   if constexpr (Sem == MemOpSem::Relaxed) {
