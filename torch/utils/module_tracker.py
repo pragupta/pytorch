@@ -12,9 +12,6 @@ from torch.nn.modules.module import (
 from torch.utils._pytree import tree_flatten
 import gc
 
-logger = logging.getLogger(__name__)
-
-
 __all__ = ["ModuleTracker"]
 
 
