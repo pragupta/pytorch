@@ -92,7 +92,7 @@ __global__ void _scatter_gather_elementwise_kernel(int N, func_t f) {
   #pragma unroll
   for (int i = 0; i < vt; ++i) {
     if (idx < N) {
-      f(idx);
+      f(idx, N);
       idx += nt;
     }
   }
@@ -137,7 +137,7 @@ struct _cuda_scatter_gather_internal_kernel {
     char* index_ptr = (char*)iter.data_ptr(2);
 
     auto offset_calc = make_offset_calculator<3>(iter);
-    auto loop = [=]C10_DEVICE(int i) {
+    auto loop = [=]C10_DEVICE(int i, int N) {
       auto offsets = offset_calc.get(i);
 
       int64_t idx_dim = *(int64_t*)(index_ptr + offsets[2]);
@@ -154,7 +154,52 @@ struct _cuda_scatter_gather_internal_kernel {
 
     _launch_scatter_gather_kernel<num_threads(), thread_work_size()>(iter.numel(), loop);
   }
-}; // struct _cuda_scatter_fill_internal_kernel
+  void operator() (
+    TensorIterator& iter,
+    int64_t index_size,
+    int64_t index_stride,
+    int64_t numel,  // Do not use `const` qualifier here as it may cause issue in cuda 11.6.x. See #75434, #75545
+    const ReduceAdd& f
+  ) {
+    if (!iter.can_use_32bit_indexing()) {
+      for (auto& sub_iter : iter.with_32bit_indexing()) {
+        _cuda_scatter_gather_internal_kernel<is_scatter_like, scalar_t>()(
+          sub_iter, index_size, index_stride, numel, f
+        );
+      }
+      return;
+    }
+
+    char* self_ptr = (char*)iter.data_ptr(0);
+    char* src_ptr = (char*)iter.data_ptr(1);
+    char* index_ptr = (char*)iter.data_ptr(2);
+
+    auto offset_calc = make_offset_calculator<3>(iter);
+    auto loop = [=]C10_DEVICE(int i, int N) {
+      auto offsets = offset_calc.get(i);
+      scalar_t curr_sum =  *(scalar_t*)(self_ptr + offsets[0]);
+      for (auto j = 0; j < N; j++)
+      {
+          auto j_offsets = offset_calc.get(j);
+          int64_t j_idx_dim = *(int64_t*)(index_ptr + j_offsets[2]);
+
+          if (i == j_idx_dim) {
+              curr_sum = curr_sum + *(scalar_t*)(src_ptr + j_offsets[1]);
+          }
+      }
+      scalar_t* out_ptr = (scalar_t*)(self_ptr + offsets[0]) + i;
+      *out_ptr = curr_sum;
+//      f(
+//        (scalar_t*)(self_ptr + offsets[0]),
+//        i,
+//        numel,
+//        (scalar_t*)(&curr_sum)
+//      );
+    };
+
+    _launch_scatter_gather_kernel<num_threads(), thread_work_size()>(iter.numel(), loop);
+  }
+}; // struct _cuda_scatter_gather_internal_kernel
 
 template <bool is_scatter_like = true, bool cast_to_opaque = true>
 struct cuda_scatter_gather_base_kernel {
@@ -358,7 +403,7 @@ struct _cuda_scatter_fill_internal_kernel {
     char* index_ptr = (char*)iter.data_ptr(1);
 
     auto offset_calc = make_offset_calculator<2>(iter);
-    auto loop = [=]C10_DEVICE(int i) {
+    auto loop = [=]C10_DEVICE(int i, int N) {
       auto offsets = offset_calc.get(i);
 
       int64_t idx_dim = *(int64_t*)(index_ptr + offsets[1]);
