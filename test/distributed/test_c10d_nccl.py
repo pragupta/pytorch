@@ -4638,7 +4638,7 @@ class NCCLTraceTest(NCCLTraceTestBase):
                     #ROCm runtime used to call uSleep(20 µs)inside the default‑signal busy-wait loop.
                     #Now, this sleep is removed which lets the host thread spin continuously
                     #Therefore, the state can either be scheduled or started before test dumps the trace.
-                    if TEST_WITH_ROCM and _get_torch_rocm_version() >= (6,4) and timing_enabled:
+                    if torch.version.hip and _get_torch_rocm_version() >= (6,4) and timing_enabled:
                         assert(
                             t[-1]["state"] in ("scheduled", "started"))
                     else:
