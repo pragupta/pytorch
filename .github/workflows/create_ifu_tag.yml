@@ -2,7 +2,7 @@ name: Create git tags for IFU PRs
 
 on:
   pull_request_target:
-    types: [closed]
+    types: [opened]
 
 permissions:
   contents: write        # create/push tags
