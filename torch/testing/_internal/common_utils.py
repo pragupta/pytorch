@@ -106,12 +106,8 @@ except ImportError:
     has_pytest = False
 
 
-<<<<<<< HEAD
-MI300_ARCH = ("gfx940", "gfx941", "gfx942")
-=======
 SEED = 1234
-MI300_ARCH = ("gfx942",)
->>>>>>> upstream/main
+MI300_ARCH = ("gfx940", "gfx941", "gfx942")
 MI200_ARCH = ("gfx90a")
 NAVI_ARCH = ("gfx1030", "gfx1100", "gfx1101", "gfx1200", "gfx1201")
 NAVI3_ARCH = ("gfx1100", "gfx1101")
