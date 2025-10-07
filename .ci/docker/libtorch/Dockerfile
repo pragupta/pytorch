@@ -74,8 +74,15 @@ RUN bash ./install_cuda.sh 13.0
 RUN bash ./install_magma.sh 13.0
 RUN ln -sf /usr/local/cuda-13.0 /usr/local/cuda
 
+# Install libibverbs for libtorch and copy to CUDA directory
+RUN apt-get update -y && \
+    apt-get install -y libibverbs-dev librdmacm-dev && \
+    cp /usr/lib/x86_64-linux-gnu/libmlx5.so* /usr/local/cuda/lib64/ && \
+    cp /usr/lib/x86_64-linux-gnu/librdmacm.so* /usr/local/cuda/lib64/ && \
+    cp /usr/lib/x86_64-linux-gnu/libibverbs.so* /usr/local/cuda/lib64/ && \
+    cp /usr/lib/x86_64-linux-gnu/libnl* /usr/local/cuda/lib64/
+
 FROM cpu as rocm
-ARG ROCM_VERSION
 ARG PYTORCH_ROCM_ARCH
 ENV PYTORCH_ROCM_ARCH ${PYTORCH_ROCM_ARCH}
 ENV MKLROOT /opt/intel
@@ -94,7 +101,7 @@ RUN apt-get update -y && \
     apt-get clean
 
 RUN bash ./install_rocm_drm.sh && rm install_rocm_drm.sh
-RUN bash ./install_rocm_magma.sh ${ROCM_VERSION} && rm install_rocm_magma.sh
+RUN bash ./install_rocm_magma.sh && rm install_rocm_magma.sh
 
 FROM ${BASE_TARGET} as final
 COPY --from=openssl            /opt/openssl           /opt/openssl

@@ -12,21 +12,22 @@ from torch.testing import make_tensor, FileCheck
 from torch.testing._internal.common_cuda import SM53OrLater, SM80OrLater, TEST_CUSPARSE_GENERIC
 from torch.testing._internal.common_utils import \
     (TEST_WITH_TORCHINDUCTOR, TEST_WITH_ROCM, TEST_CUDA_CUDSS, TEST_SCIPY, TEST_NUMPY, TEST_MKL, IS_WINDOWS, TestCase,
-     run_tests, load_tests, coalescedonoff, parametrize, subtest, skipIfTorchDynamo, skipIfRocm,
+     run_tests, load_tests, coalescedonoff, parametrize, subtest, skipIfTorchDynamo,
      skipIfRocmVersionLessThan, IS_FBCODE, IS_REMOTE_GPU, suppress_warnings)
 from torch.testing._internal.common_device_type import \
     (ops, instantiate_device_type_tests, dtypes, OpDTypes, dtypesIfCUDA, onlyCPU, onlyCUDA, skipCUDAIfNoSparseGeneric,
-     precisionOverride, skipMeta, skipCUDAIf, skipCPUIfNoMklSparse, skipCUDAIfRocmVersionLessThan,
+     precisionOverride, skipMeta, skipCUDAIf, skipCUDAIfRocm, skipCPUIfNoMklSparse, skipCUDAIfRocmVersionLessThan,
      largeTensorTest)
 from torch.testing._internal.common_methods_invocations import \
     (op_db, sparse_csr_unary_ufuncs, ReductionOpInfo)
-from torch.testing._internal.common_cuda import _get_torch_cuda_version, TEST_CUDA
+from torch.testing._internal.common_cuda import TEST_CUDA
 from torch.testing._internal.common_dtype import (
     floating_types, all_types_and_complex_and, floating_and_complex_types, floating_types_and,
     all_types_and_complex, floating_and_complex_types_and)
 from torch.testing._internal.opinfo.definitions.linalg import sample_inputs_linalg_solve
 from torch.testing._internal.opinfo.definitions.sparse import validate_sample_input_sparse
-from test_sparse import CUSPARSE_SPMM_COMPLEX128_SUPPORTED, HIPSPARSE_SPMM_COMPLEX128_SUPPORTED
+from test_sparse import HIPSPARSE_BF16_SUPPORTED, HIPSPARSE_FP16_SUPPORTED, \
+    SPARSE_FLOAT16_SUPPORTED, SPARSE_BFLOAT16_SUPPORTED, SPARSE_COMPLEX128_SUPPORTED
 import operator
 
 if TEST_SCIPY:
@@ -40,23 +41,11 @@ load_tests = load_tests
 
 no_mkl_sparse = IS_WINDOWS or not TEST_MKL
 
-def _check_cusparse_triangular_solve_available():
-    version = _get_torch_cuda_version()
-    # cusparseSpSM was added in 11.3.1 but we don't have access to patch version
-    min_supported_version = (11, 4)
-    return version >= min_supported_version
 
 def _check_cusparse_spgemm_available():
     # cusparseSpGEMM was added in 11.0
     return not TEST_WITH_ROCM
 
-def _check_cusparse_sddmm_available():
-    if TEST_WITH_ROCM:
-        return True
-    version = _get_torch_cuda_version()
-    # cusparseSDDMM was added in 11.2.1 but we don't have access to patch version
-    min_supported_version = (11, 3)
-    return version >= min_supported_version
 
 _sparse_csr_ops = list(filter(lambda op: op.supports_sparse_csr, op_db))
 _sparse_compressed_ops = list(filter(lambda op: (op.supports_sparse_csr or op.supports_sparse_csc
@@ -1546,9 +1535,10 @@ class TestSparseCSR(TestCase):
                     run_test(c, a, a_batched, b, op_b, op_out, dtype=dtype, device=device)
 
     @onlyCUDA
+    @dtypes(*floating_and_complex_types_and(*[torch.half] if HIPSPARSE_FP16_SUPPORTED else [],
+                                            *[torch.bfloat16] if HIPSPARSE_BF16_SUPPORTED else []))
     @skipCUDAIfNoSparseGeneric
     @skipIfRocmVersionLessThan((6, 3))
-    @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
     def test_bmm(self, device, dtype):
         def run_test(a, a_batched, b, op_b=False, op_out=False, *, dtype=None, device=None):
             b = b.mH if (op_b and a.shape == b.shape) else b
@@ -1955,8 +1945,8 @@ class TestSparseCSR(TestCase):
 
     @dtypes(*floating_and_complex_types())
     @dtypesIfCUDA(*floating_and_complex_types_and(
-                  *[torch.half] if SM53OrLater and TEST_CUSPARSE_GENERIC else [],
-                  *[torch.bfloat16] if SM80OrLater and TEST_CUSPARSE_GENERIC else []))
+                  *[torch.half] if SPARSE_FLOAT16_SUPPORTED else [],
+                  *[torch.bfloat16] if SPARSE_BFLOAT16_SUPPORTED else []))
     @precisionOverride({torch.bfloat16: 3.5e-2, torch.float16: 1e-2})
     def test_sparse_addmm(self, device, dtype):
         def test_shape(m, n, p, nnz, broadcast, index_dtype, alpha_beta=None):
@@ -1990,11 +1980,9 @@ class TestSparseCSR(TestCase):
     @precisionOverride({torch.double: 1e-8, torch.float: 1e-4, torch.bfloat16: 0.6,
                         torch.half: 1e-1, torch.cfloat: 1e-4, torch.cdouble: 1e-8})
     @dtypesIfCUDA(*floating_types_and(torch.complex64,
-                                      *[torch.bfloat16] if (SM80OrLater and not TEST_WITH_ROCM) else [],
-                                      *[torch.half] if (SM53OrLater and not TEST_WITH_ROCM) else [],
-                                      *[torch.complex128]
-                                      if CUSPARSE_SPMM_COMPLEX128_SUPPORTED or HIPSPARSE_SPMM_COMPLEX128_SUPPORTED
-                                      else []))
+                                      *[torch.bfloat16] if SPARSE_BFLOAT16_SUPPORTED else [],
+                                      *[torch.half] if SPARSE_FLOAT16_SUPPORTED else [],
+                                      *[torch.complex128] if SPARSE_COMPLEX128_SUPPORTED else []))
     @sparse_compressed_nonblock_layouts()
     def test_addmm_all_sparse_csr(self, device, dtype, layout):
         M = torch.randn(10, 25, device=device).to(dtype)
@@ -2066,11 +2054,9 @@ class TestSparseCSR(TestCase):
     @skipCPUIfNoMklSparse
     @dtypes(*floating_and_complex_types())
     @dtypesIfCUDA(*floating_types_and(torch.complex64,
-                                      *[torch.bfloat16] if SM80OrLater and not TEST_WITH_ROCM else [],
-                                      *[torch.half] if SM53OrLater and not TEST_WITH_ROCM else [],
-                                      *[torch.complex128]
-                                      if CUSPARSE_SPMM_COMPLEX128_SUPPORTED or HIPSPARSE_SPMM_COMPLEX128_SUPPORTED
-                                      else []))
+                                      *[torch.bfloat16] if SPARSE_BFLOAT16_SUPPORTED else [],
+                                      *[torch.half] if SPARSE_FLOAT16_SUPPORTED else [],
+                                      *[torch.complex128] if SPARSE_COMPLEX128_SUPPORTED else []))
     @precisionOverride({torch.double: 1e-8, torch.float: 1e-4, torch.bfloat16: 0.6,
                         torch.half: 1e-1, torch.cfloat: 1e-4, torch.cdouble: 1e-8})
     def test_addmm_sizes_all_sparse_csr(self, device, dtype, m, n, k):
@@ -2347,10 +2333,7 @@ class TestSparseCSR(TestCase):
             run_test(index_dtype)
 
     @skipCPUIfNoMklSparse
-    @skipCUDAIf(
-        not _check_cusparse_triangular_solve_available(),
-        "cuSparse Generic API SpSV is not available"
-    )
+    @skipCUDAIfRocm(msg="needs HIPSPARSE_GENERIC_SPSV or SPSM")
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
     @precisionOverride({torch.float32: 1e-3, torch.complex64: 1e-3,
                         torch.float64: 1e-8, torch.complex128: 1e-8})
@@ -2427,10 +2410,6 @@ class TestSparseCSR(TestCase):
                                                                                  itertools.product([True, False], repeat=4)):
             run_test(n, k, upper, unitriangular, transpose, zero)
 
-    @skipCUDAIf(
-        not _check_cusparse_sddmm_available(),
-        "cuSparse Generic API SDDMM is not available"
-    )
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
     @precisionOverride({torch.float32: 1e-3, torch.complex64: 1e-3,
                         torch.float64: 1e-8, torch.complex128: 1e-8})
@@ -2481,10 +2460,6 @@ class TestSparseCSR(TestCase):
                 for op_a, op_b in itertools.product([True, False], repeat=2):
                     run_test(c, a, b, op_a, op_b)
 
-    @skipCUDAIf(
-        not _check_cusparse_sddmm_available(),
-        "cuSparse Generic API SDDMM is not available"
-    )
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
     def test_sampled_addmm_autograd(self, device, dtype):
         from torch.testing._internal.common_methods_invocations import sample_inputs_sparse_sampled_addmm
@@ -2511,13 +2486,9 @@ class TestSparseCSR(TestCase):
             self.assertEqual(a.grad, a1.grad)
             self.assertEqual(b.grad, b1.grad)
 
+    @skipCUDAIfRocm
     @onlyCUDA
-    # It works on ROCm and CUDA issue is currently active
-    @skipCUDAIf(not TEST_WITH_ROCM, "Causes CUDA memory exception, see https://github.com/pytorch/pytorch/issues/72177")
-    @skipCUDAIf(
-        not _check_cusparse_sddmm_available(),
-        "cuSparse Generic API SDDMM is not available"
-    )
+    @skipCUDAIf(True, "Causes CUDA memory exception, see https://github.com/pytorch/pytorch/issues/72177")
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
     @precisionOverride({torch.float32: 1e-3, torch.complex64: 1e-3,
                         torch.float64: 1e-8, torch.complex128: 1e-8})
@@ -2533,10 +2504,6 @@ class TestSparseCSR(TestCase):
             run_test(c, a, b)
 
     @onlyCUDA
-    @skipCUDAIf(
-        not _check_cusparse_sddmm_available(),
-        "cuSparse Generic API SDDMM is not available"
-    )
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
     def test_sampled_addmm_errors(self, device, dtype):
         # test that the errors are the same for dense and sparse sampled versions
@@ -2733,7 +2700,7 @@ class TestSparseCSR(TestCase):
             # Sparse CSR only supports 2D tensors as inputs
             # Fail early to prevent silent success with this test
             if sample.input.ndim != 2:
-                raise ValueError("Expected 2D tensor but got tensor with dimension: {sample.input.ndim}.")
+                raise ValueError(f"Expected 2D tensor but got tensor with dimension: {sample.input.ndim}.")
 
             sample.input = sample.input.to_sparse_csr()
             expect = op(sample.input, *sample.args, **sample.kwargs)
@@ -2757,7 +2724,7 @@ class TestSparseCSR(TestCase):
             # Sparse CSR only supports 2D tensors as inputs
             # Fail early to prevent silent success with this test
             if sample.input.ndim != 2:
-                raise ValueError("Expected 2D tensor but got tensor with dimension: {sample.input.ndim}.")
+                raise ValueError(f"Expected 2D tensor but got tensor with dimension: {sample.input.ndim}.")
 
             sample.input = sample.input.to_sparse_csr()
             expect = op(sample.input, *sample.args, **sample.kwargs)
@@ -2816,10 +2783,6 @@ class TestSparseCSR(TestCase):
             dense_output.backward(dense_covector)
             self.assertEqual(sparse_input.grad, dense_input.grad)
 
-    @skipCUDAIf(
-        not _check_cusparse_sddmm_available(),
-        "cuSparse Generic API SDDMM is not available"
-    )
     @dtypes(torch.float64)
     def test_autograd_dense_output_addmm(self, device, dtype):
         from torch.testing._internal.common_methods_invocations import sample_inputs_addmm
@@ -3725,7 +3688,6 @@ class TestSparseCompressedTritonKernels(TestCase):
 
     @parametrize("block_size", [16, 32, 64])
     @onlyCUDA
-    @skipIfRocm
     @dtypes(torch.half, torch.bfloat16, torch.float)
     @dtypesIfCUDA(torch.half, *[torch.bfloat16] if SM80OrLater else [], torch.float)
     @unittest.skipIf(IS_FBCODE and IS_REMOTE_GPU, "Test requires Triton")

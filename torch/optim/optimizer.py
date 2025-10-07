@@ -4,11 +4,11 @@
 import functools
 import warnings
 from collections import defaultdict, OrderedDict
-from collections.abc import Hashable, Iterable, Sequence
+from collections.abc import Callable, Hashable, Iterable, Sequence
 from copy import deepcopy
 from itertools import chain
-from typing import Any, Callable, cast, Optional, overload, TypeVar, Union
-from typing_extensions import ParamSpec, Self, TypeAlias
+from typing import Any, cast, Optional, overload, TypeAlias, TypeVar, Union
+from typing_extensions import ParamSpec, Self
 
 import torch
 import torch.utils.hooks as hooks
@@ -28,9 +28,10 @@ _P = ParamSpec("_P")
 Args: TypeAlias = tuple[Any, ...]
 Kwargs: TypeAlias = dict[str, Any]
 StateDict: TypeAlias = dict[str, Any]
-DeviceDict = dict[Optional[torch.device], torch.Tensor]
-DeviceDtypeDict = dict[Optional[tuple[torch.device, torch.dtype]], torch.Tensor]
-
+DeviceDict: TypeAlias = dict[Optional[torch.device], torch.Tensor]
+DeviceDtypeDict: TypeAlias = dict[
+    Optional[tuple[torch.device, torch.dtype]], torch.Tensor
+]
 
 GlobalOptimizerPreHook: TypeAlias = Callable[
     ["Optimizer", Args, Kwargs], Optional[tuple[Args, Kwargs]]

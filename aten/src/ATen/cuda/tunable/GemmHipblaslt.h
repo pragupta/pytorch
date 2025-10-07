@@ -14,6 +14,7 @@
 #include <hipblaslt/hipblaslt.h>
 #include <hipblaslt/hipblaslt-ext.hpp>
 
+
 #define TORCH_HIPBLASLT_CHECK(EXPR)               \
   do {                                            \
     hipblasStatus_t __err = EXPR;                 \

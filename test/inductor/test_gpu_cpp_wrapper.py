@@ -7,7 +7,7 @@ from typing import NamedTuple
 import torch
 from torch._inductor import config
 from torch._inductor.test_case import TestCase as InductorTestCase
-from torch.testing._internal.common_utils import slowTest
+from torch.testing._internal.common_utils import TEST_WITH_ROCM, slowTest
 from torch.testing._internal.inductor_utils import GPU_TYPE, RUN_GPU
 
 
@@ -61,6 +61,19 @@ class TestGpuWrapper(InductorTestCase):
             }
         )(test_fn)
         comp()
+
+    def test_non_tensor_args_wrapped_on_cpu(self):
+        if not RUN_GPU:
+            self.skipTest("GPU not available")
+
+        def test_fn(x, s):
+            return (x + s).sum()
+
+        compiled = torch.compile(options={"cpp_wrapper": True})(test_fn)
+        x = torch.randn(4, device=self.device)
+        with torch.utils._device.DeviceContext(self.device):
+            _, code = test_torchinductor.run_and_get_cpp_code(compiled, x, 3)
+        self.assertIn("torch.tensor(arg, device='cpu')", code)
 
 
 class DynamicShapesGpuWrapperGpuTests(InductorTestCase):
@@ -308,6 +321,16 @@ if RUN_GPU:
             test_failures_gpu_wrapper[f"{test_name}_gpu_dynamic_shapes"] = (
                 test_torchinductor.TestFailure(("gpu_wrapper",), is_skip=True)
             )
+
+    if TEST_WITH_ROCM:
+        prop = torch.cuda.get_device_properties(0)
+        gcnArchName = prop.gcnArchName.split(":")[0]
+        if "gfx95" in gcnArchName:
+            skip_list = ["test_mm_plus_mm2"]
+            for test_name in skip_list:
+                test_failures_gpu_wrapper[
+                    f"{test_name}"
+                ] = test_torchinductor.TestFailure(("gpu_wrapper",), is_skip=True)
 
     test_torchinductor.copy_tests(
         GpuWrapperTemplate, TestGpuWrapper, "gpu_wrapper", test_failures_gpu_wrapper

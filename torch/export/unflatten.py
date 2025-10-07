@@ -5,11 +5,12 @@ import logging
 import operator
 import re
 from collections import defaultdict
+from collections.abc import Callable
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, cast, Optional, Union
+from typing import Any, cast, Optional, Union
 
 import torch
 import torch.fx._pytree as fx_pytree
@@ -134,6 +135,11 @@ class _SubmoduleBase:
     _ty: Optional[str]
 
     def type_name(self) -> Optional[str]:
+        """
+        Subclass of this class - InterpreterModule, InterpreterModuleDispatcher, represents
+        corresponding model in eager model. To get this type information for those modules
+        in eager model we need to use this method.
+        """
         return self._ty
 
 
@@ -645,10 +651,7 @@ class UnflattenedModule(torch.nn.Module):
         return flat_args
 
     def forward(self, *args, **kwargs):
-        flat_args = torch._dynamo.disable(
-            self.process_forward_inputs,
-            reason="do not trace into preprocessing the inputs",
-        )(*args, **kwargs)
+        flat_args = self.process_forward_inputs(*args, **kwargs)
         signature = self.module_call_graph[0].signature
 
         if is_fx_symbolic_tracing():
@@ -770,7 +773,17 @@ def unflatten(
         hierarchy as the original eager module pre-export.
     """
     module = _remove_effect_tokens(module)
-    return UnflattenedModule(module, flat_args_adapter)
+    m = UnflattenedModule(module, flat_args_adapter)
+
+    # Disable process_forward_inputs as the adapter has many
+    # non-dynamo-traceable behavior.
+    m.process_forward_inputs = torch._dynamo.disable(  # type: ignore[method-assign]
+        m.process_forward_inputs,
+        reason="do not trace into preprocessing the inputs",
+        recursive=True,
+    )
+
+    return m
 
 
 def _inplace_buffer_and_input_mutations(

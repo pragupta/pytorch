@@ -1,8 +1,7 @@
 ARG CENTOS_VERSION
 
-FROM centos:${CENTOS_VERSION}
+FROM quay.io/centos/centos:stream${CENTOS_VERSION}
 
-ARG CENTOS_VERSION
 
 # Set AMD gpu targets to build for
 ARG PYTORCH_ROCM_ARCH
@@ -14,6 +13,9 @@ ENV PYTORCH_ROCM_ARCH ${PYTORCH_ROCM_ARCH}
 COPY ./common/install_base.sh install_base.sh
 RUN bash ./install_base.sh && rm install_base.sh
 
+#Install langpack
+RUN yum install -y glibc-langpack-en
+
 # Update CentOS git version
 RUN yum -y remove git
 RUN yum -y remove git-*
@@ -22,10 +24,11 @@ RUN yum -y install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-re
 RUN yum install -y git
 
 # Install devtoolset
-ARG DEVTOOLSET_VERSION
-COPY ./common/install_devtoolset.sh install_devtoolset.sh
-RUN bash ./install_devtoolset.sh && rm install_devtoolset.sh
+RUN dnf install -y rpmdevtools
 ENV BASH_ENV "/etc/profile"
+
+# Install ninja
+RUN dnf --enablerepo=crb install -y ninja-build
 
 # (optional) Install non-default glibc version
 ARG GLIBC_VERSION
@@ -56,15 +59,21 @@ ENV INSTALLED_VISION ${VISION}
 
 # Install rocm
 ARG ROCM_VERSION
+RUN mkdir ci_commit_pins
+COPY ./common/common_utils.sh common_utils.sh
+COPY ./ci_commit_pins/rocm-composable-kernel.txt ci_commit_pins/rocm-composable-kernel.txt
 COPY ./common/install_rocm.sh install_rocm.sh
 RUN bash ./install_rocm.sh
-RUN rm install_rocm.sh
+RUN rm install_rocm.sh common_utils.sh
+RUN rm -r ci_commit_pins
 COPY ./common/install_rocm_magma.sh install_rocm_magma.sh
 RUN bash ./install_rocm_magma.sh ${ROCM_VERSION}
 RUN rm install_rocm_magma.sh
 COPY ./common/install_amdsmi.sh install_amdsmi.sh
 RUN bash ./install_amdsmi.sh
 RUN rm install_amdsmi.sh
+
+ENV ROCM_PATH /opt/rocm
 ENV PATH /opt/rocm/bin:$PATH
 ENV PATH /opt/rocm/hcc/bin:$PATH
 ENV PATH /opt/rocm/hip/bin:$PATH

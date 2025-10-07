@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -50,6 +51,31 @@ def patch_init_py(
     with open(path, "w") as f:
         f.write(orig)
 
+def get_rocm_version() -> str:
+    rocm_path = os.environ.get('ROCM_HOME') or os.environ.get('ROCM_PATH') or "/opt/rocm"
+    rocm_version = "0.0.0"
+    rocm_version_h = f"{rocm_path}/include/rocm-core/rocm_version.h"
+    if not os.path.isfile(rocm_version_h):
+        rocm_version_h = f"{rocm_path}/include/rocm_version.h"
+
+    # The file could be missing due to 1) ROCm version < 5.2, or 2) no ROCm install.
+    if os.path.isfile(rocm_version_h):
+        RE_MAJOR = re.compile(r"#define\s+ROCM_VERSION_MAJOR\s+(\d+)")
+        RE_MINOR = re.compile(r"#define\s+ROCM_VERSION_MINOR\s+(\d+)")
+        RE_PATCH = re.compile(r"#define\s+ROCM_VERSION_PATCH\s+(\d+)")
+        major, minor, patch = 0, 0, 0
+        for line in open(rocm_version_h):
+            match = RE_MAJOR.search(line)
+            if match:
+                major = int(match.group(1))
+            match = RE_MINOR.search(line)
+            if match:
+                minor = int(match.group(1))
+            match = RE_PATCH.search(line)
+            if match:
+                patch = int(match.group(1))
+        rocm_version = str(major)+"."+str(minor)+"."+str(patch)
+    return rocm_version
 
 def build_triton(
     *,
@@ -65,13 +91,22 @@ def build_triton(
         max_jobs = os.cpu_count() or 1
         env["MAX_JOBS"] = str(max_jobs)
 
+    version_suffix = ""
+    if not release:
+        # Nightly binaries include the triton commit hash, i.e. 2.1.0+e6216047b8
+        # while release build should only include the version, i.e. 2.1.0
+        rocm_version = get_rocm_version()
+        version_suffix = f"+rocm{rocm_version}.git{commit_hash[:8]}"
+        version += version_suffix
+
     with TemporaryDirectory() as tmpdir:
         triton_basedir = Path(tmpdir) / "triton"
         triton_pythondir = triton_basedir / "python"
 
         triton_repo = "https://github.com/openai/triton"
         if device == "rocm":
-            triton_pkg_name = "pytorch-triton-rocm"
+            triton_pkg_name = "triton"
+            triton_repo = "https://github.com/ROCm/triton"
         elif device == "xpu":
             triton_pkg_name = "pytorch-triton-xpu"
             triton_repo = "https://github.com/intel/intel-xpu-backend-for-triton"
@@ -84,10 +119,12 @@ def build_triton(
                 ["git", "checkout", f"release/{ver}.{rev}.x"], cwd=triton_basedir
             )
         else:
+            check_call(["git", "fetch", "origin", commit_hash], cwd=triton_basedir)
             check_call(["git", "checkout", commit_hash], cwd=triton_basedir)
 
         # change built wheel name and version
         env["TRITON_WHEEL_NAME"] = triton_pkg_name
+        env["TRITON_WHEEL_VERSION_SUFFIX"] = version_suffix
         if with_clang_ldd:
             env["TRITON_BUILD_WITH_CLANG_LLD"] = "1"
 
@@ -125,6 +162,13 @@ def build_triton(
                 [f"{SCRIPT_DIR}/amd/patch_triton_wheel.sh", Path.cwd()],
                 cwd=triton_basedir,
             )
+
+        # For gpt-oss models, triton requires this extra triton_kernels wheel
+        # triton_kernels came after pytorch release/2.8
+        triton_kernels_dir = Path(f"{triton_basedir}/python/triton_kernels")
+        check_call([sys.executable, "-m", "build", "--wheel"], cwd=triton_kernels_dir, env=env)
+        kernels_whl_path = next(iter((triton_kernels_dir / "dist").glob("*.whl")))
+        shutil.copy(kernels_whl_path, Path.cwd())
 
         return Path.cwd() / whl_path.name
 

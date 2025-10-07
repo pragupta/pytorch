@@ -21,7 +21,7 @@ elif [ -n "${TRITON_CPU}" ]; then
   TRITON_REPO="https://github.com/triton-lang/triton-cpu"
   TRITON_TEXT_FILE="triton-cpu"
 else
-  TRITON_REPO="https://github.com/triton-lang/triton"
+  TRITON_REPO="https://github.com/ROCm/triton"
   TRITON_TEXT_FILE="triton"
 fi
 
@@ -66,15 +66,15 @@ if [ -n "${UBUNTU_VERSION}" ] && [ -n "${GCC_VERSION}" ] && [[ "${GCC_VERSION}" 
   # Triton needs at least gcc-9 to build
   apt-get install -y g++-9
 
-  CXX=g++-9 conda_run python setup.py bdist_wheel
+  CXX=g++-9 conda_run python -m build --wheel --no-isolation
 elif [ -n "${UBUNTU_VERSION}" ] && [ -n "${CLANG_VERSION}" ]; then
   # Triton needs <filesystem> which surprisingly is not available with clang-9 toolchain
   add-apt-repository -y ppa:ubuntu-toolchain-r/test
   apt-get install -y g++-9
 
-  CXX=g++-9 conda_run python setup.py bdist_wheel
+  CXX=g++-9 conda_run python -m build --wheel --no-isolation
 else
-  conda_run python setup.py bdist_wheel
+  conda_run python -m build --wheel --no-isolation
 fi
 
 # Copy the wheel to /opt for multi stage docker builds

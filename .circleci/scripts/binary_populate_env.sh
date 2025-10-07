@@ -69,14 +69,16 @@ fi
 
 export PYTORCH_BUILD_NUMBER=1
 
+# This part is done in the builder scripts so commenting the duplicate code
+: <<'BLOCK_COMMENT'
 # Set triton version as part of PYTORCH_EXTRA_INSTALL_REQUIREMENTS
 TRITON_VERSION=$(cat $PYTORCH_ROOT/.ci/docker/triton_version.txt)
 
 # Here PYTORCH_EXTRA_INSTALL_REQUIREMENTS is already set for the all the wheel builds hence append TRITON_CONSTRAINT
 TRITON_CONSTRAINT="platform_system == 'Linux' and platform_machine == 'x86_64'"
 
-# CUDA 12.9 builds have triton for Linux and Linux aarch64 binaries.
-if [[ "$DESIRED_CUDA" == "cu129" ]]; then
+# CUDA 12.9/13.0 builds have triton for Linux and Linux aarch64 binaries.
+if [[ "$DESIRED_CUDA" == "cu129" ]] || [[ "$DESIRED_CUDA" == "cu130" ]]; then
   TRITON_CONSTRAINT="platform_system == 'Linux'"
 fi
 
@@ -91,10 +93,10 @@ fi
 
 # Set triton via PYTORCH_EXTRA_INSTALL_REQUIREMENTS for triton rocm package
 if [[ "$PACKAGE_TYPE" =~ .*wheel.* && -n "$PYTORCH_BUILD_VERSION" && "$PYTORCH_BUILD_VERSION" =~ .*rocm.* && $(uname) == "Linux" ]]; then
-    TRITON_REQUIREMENT="pytorch-triton-rocm==${TRITON_VERSION}; ${TRITON_CONSTRAINT}"
+    TRITON_REQUIREMENT="triton==${TRITON_VERSION}; ${TRITON_CONSTRAINT}"
     if [[ -n "$PYTORCH_BUILD_VERSION" && "$PYTORCH_BUILD_VERSION" =~ .*dev.* ]]; then
         TRITON_SHORTHASH=$(cut -c1-8 $PYTORCH_ROOT/.ci/docker/ci_commit_pins/triton.txt)
-        TRITON_REQUIREMENT="pytorch-triton-rocm==${TRITON_VERSION}+git${TRITON_SHORTHASH}; ${TRITON_CONSTRAINT}"
+        TRITON_REQUIREMENT="triton==${TRITON_VERSION}+git${TRITON_SHORTHASH}; ${TRITON_CONSTRAINT}"
     fi
     if [[ -z "${PYTORCH_EXTRA_INSTALL_REQUIREMENTS:-}" ]]; then
         export PYTORCH_EXTRA_INSTALL_REQUIREMENTS="${TRITON_REQUIREMENT}"
@@ -117,6 +119,7 @@ if [[ "$PACKAGE_TYPE" =~ .*wheel.* && -n "$PYTORCH_BUILD_VERSION" && "$PYTORCH_B
         export PYTORCH_EXTRA_INSTALL_REQUIREMENTS="${PYTORCH_EXTRA_INSTALL_REQUIREMENTS} | ${TRITON_REQUIREMENT}"
     fi
 fi
+BLOCK_COMMENT
 
 USE_GLOO_WITH_OPENSSL="ON"
 if [[ "$GPU_ARCH_TYPE" =~ .*aarch64.* ]]; then

@@ -68,6 +68,7 @@ from torch.testing._internal.common_utils import (
     IS_MACOS,
     IS_WINDOWS,
     run_tests,
+    skipIfRocm,
     skipIfTorchDynamo,
 )
 from torch.testing._internal.jit_utils import JitTestCase
@@ -3785,25 +3786,6 @@ class TestFX(JitTestCase):
 
         FileCheck().check("Tuple[()]").check("Tuple[str, Tuple[()]]").run(scripted.code)
 
-    @unittest.skipIf(
-        IS_WINDOWS, "Python Windows bug? https://bugs.python.org/issue45108"
-    )
-    @unittest.skipIf(sys.version_info >= (3, 10), "Does not work on Python-3.10")
-    def test_assert(self):
-        def f(x):
-            assert x > 1
-            return x + 1
-
-        try:
-            torch.fx.proxy.TracerBase.trace_asserts = True
-            traced = symbolic_trace(f)
-        finally:
-            torch.fx.proxy.TracerBase.trace_asserts = False
-
-        self.assertEqual(f(2), traced(2))
-        with self.assertRaises(AssertionError):
-            traced(0)
-
     def test_pytree(self):
         # Used to test that you can use your own placeholder class
         class PHTest(PHBase):
@@ -4819,7 +4801,6 @@ class TestFunctionalTracing(JitTestCase):
         def functional_test(self):
             if (
                 func_name in self.UNTRACEABLE_FUNCTIONALS_PY38
-                and sys.version_info >= (3, 8)
                 and sys.version_info < (3, 12)
             ):
                 exc, err = self.UNTRACEABLE_FUNCTIONALS_PY38[func_name]

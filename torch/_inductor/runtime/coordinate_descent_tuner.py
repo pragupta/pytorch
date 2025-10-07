@@ -3,6 +3,7 @@ import copy
 import itertools
 import logging
 from typing import Callable, Optional, TYPE_CHECKING
+from functools import lru_cache
 
 from .hints import TRITON_MAX_BLOCK
 from .runtime_utils import red_text, triton_config_to_hashable
@@ -60,10 +61,16 @@ class CoordescTuner:
         size_hint = self.size_hints.get(prefix) if self.size_hints is not None else None
         return min(max_block, size_hint) if size_hint is not None else max_block
 
+    @lru_cache(maxsize=1)
     def get_warpsmax(self):
-        # Currently, CUDA has a maximum of 1024 threads, so 32 is the max
-        # number of warps.
-        return 1024 // 32
+        # CUDA/ROCm has a maximum of 1024 threads per block
+        from torch.cuda import current_device, get_device_properties, is_available
+        
+        warp_size = (
+            get_device_properties(current_device()).warp_size if is_available() else 32
+        )
+
+        return 1024 // warp_size
 
     def cache_benchmark_result(self, config, timing):
         self.cached_benchmark_results[triton_config_to_hashable(config)] = timing
@@ -241,7 +248,10 @@ class CoordescTuner:
 
         log.debug("= Do coordinate descent tuning for %s =", self.name)
         log.debug(
-            "Baseline Config %s, baseline timing %f", baseline_config, baseline_timing
+            "%s: Baseline Config %s, baseline timing %f",
+            self.name,
+            baseline_config,
+            baseline_timing,
         )
         improved = True
         best_config = baseline_config
@@ -283,15 +293,17 @@ class CoordescTuner:
 
                 if improved:
                     msg = red_text(
-                        "Coordinate descend tuning found improvement of %.3fx by looking in all directions."
+                        "%s: Coordinate descend tuning found improvement of %.3fx by looking in all directions."
                     )
                     log.debug(
                         msg,
+                        self.name,
                         old_best_timing / best_timing,
                     )
 
         log.debug(
-            "Improve from %s %f -> %s %f, %.3fx",
+            "%s: Improve from %s %f -> %s %f, %.3fx",
+            self.name,
             baseline_config,
             baseline_timing,
             best_config,
