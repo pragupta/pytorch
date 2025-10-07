@@ -36,13 +36,13 @@ jobs:
           set -euo pipefail
           
           PR_NUM="${{ github.event.pull_request.number }}"
-          BASE_REF="${{ github.event.pull_request.base.ref }}"
-          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-          MERGE_SHA="${{ github.event.pull_request.merge_commit_sha }}"
+          BASE_REF="${{ github.event.pull_request.base.ref }}" #Refers to upstream branch
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}" #Refers to HEAD commit in PR branch 
+          MERGE_SHA="${{ github.event.pull_request.merge_commit_sha }}" #Refers to merge commit that landed the PR
 
           # The ROCm base commit is the first parent of the merge commit that landed the PR
           # (i.e., the base branch tip BEFORE this PR merged).
-          ROCM_BASE_SHA=$(git rev-parse "${MERGE_SHA}^1")
+          ROCM_BASE_SHA=$(git rev-parse "${MERGE_SHA}^1")  #Tip Of Tree of rocm branch pre-IFU merge
 
           # Add and fetch upstream to identify the upstream/main commit that HEAD integrated.
           git remote add upstream "https://github.com/pytorch/pytorch.git"
@@ -51,7 +51,7 @@ jobs:
           # Heuristic: the upstream commit integrated by the PR's head is the merge-base
           # between the PR head commit and upstream/main as fetched now.
           # This gives you the exact upstream commit (or the best common ancestor) that HEAD included.
-          UPSTREAM_MAIN_SHA=$(git merge-base "${HEAD_SHA}" "upstream/$BASE_REF")
+          UPSTREAM_MAIN_SHA=$(git merge-base "${HEAD_SHA}" "upstream/$BASE_REF") #Tip of Tree of upstream branch that we pulled locally
           echo "PR_NUM=$PR_NUM"                           
           echo "BASE_REF=$BASE_REF"                       
           echo "HEAD_SHA=$HEAD_SHA"                       
