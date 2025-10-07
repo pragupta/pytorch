@@ -1,9 +1,8 @@
 name: Create git tags for IFU PRs
 
 on:
-  pull_request_target:
-    types: [opened]
-    branches: rocm7.1_internal_testing
+  pull_request:
+    types: [closed]
 
 permissions:
   contents: write        # create/push tags
