@@ -36,7 +36,7 @@ jobs:
           set -euo pipefail
           
           PR_NUM="${{ github.event.pull_request.number }}"
-          BASE_REF="${{ github.event.pull_request.base.ref }}" #Refers to upstream branch
+          UPSTREAM_BASE_REF="${{ github.event.pull_request.base.ref }}" #Refers to upstream branch
           HEAD_SHA="${{ github.event.pull_request.head.sha }}" #Refers to HEAD commit in PR branch 
           MERGE_SHA="${{ github.event.pull_request.merge_commit_sha }}" #Refers to merge commit that landed the PR
 
@@ -46,14 +46,14 @@ jobs:
 
           # Add and fetch upstream to identify the upstream/main commit that HEAD integrated.
           git remote add upstream "https://github.com/pytorch/pytorch.git"
-          git fetch upstream "$BASE_REF"
+          git fetch upstream "$UPSTREAM_BASE_REF"
 
           # Heuristic: the upstream commit integrated by the PR's head is the merge-base
           # between the PR head commit and upstream/main as fetched now.
           # This gives you the exact upstream commit (or the best common ancestor) that HEAD included.
-          UPSTREAM_MAIN_SHA=$(git merge-base "${HEAD_SHA}" "upstream/$BASE_REF") #Tip of Tree of upstream branch that we pulled locally
+          UPSTREAM_MAIN_SHA=$(git merge-base "${HEAD_SHA}" "upstream/$UPSTREAM_BASE_REF") #Tip of Tree of upstream branch that we pulled locally
           echo "PR_NUM=$PR_NUM"                           
-          echo "BASE_REF=$BASE_REF"                       
+          echo "UPSTREAM_BASE_REF=$UPSTREAM_BASE_REF"                       
           echo "HEAD_SHA=$HEAD_SHA"                       
           echo "MERGE_SHA=$MERGE_SHA"                     
           echo "ROCM_BASE_SHA=$ROCM_BASE_SHA"            
@@ -61,7 +61,7 @@ jobs:
 
           
           echo "PR_NUM=$PR_NUM"                           >> "$GITHUB_OUTPUT"
-          echo "BASE_REF=$BASE_REF"                       >> "$GITHUB_OUTPUT"
+          echo "UPSTREAM_BASE_REF=$UPSTREAM_BASE_REF"     >> "$GITHUB_OUTPUT"
           echo "HEAD_SHA=$HEAD_SHA"                       >> "$GITHUB_OUTPUT"
           echo "MERGE_SHA=$MERGE_SHA"                     >> "$GITHUB_OUTPUT"
           echo "ROCM_BASE_SHA=$ROCM_BASE_SHA"             >> "$GITHUB_OUTPUT"
