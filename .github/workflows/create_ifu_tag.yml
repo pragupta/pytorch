@@ -18,6 +18,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: rocm
+          repositories: pytorch
+
       - name: Checkout base repo (full history)
         uses: actions/checkout@v4
         with:
@@ -99,7 +108,7 @@ jobs:
 
       - name: Append rocm_base & upstream_main to PR body
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.output.token }}
         shell: bash
         run: |
           set -euo pipefail
