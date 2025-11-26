@@ -9472,6 +9472,28 @@ C10_MAPPINGS = collections.OrderedDict(
         ("CUDAKernelLaunchRegistry", ("HIPKernelLaunchRegistry", API_C10)),
         ("c10::cuda::get_cuda_check_suffix", ("c10::hip::get_hip_check_suffix", API_C10)),
         ("c10::cuda::get_cuda_error_help", ("c10::hip::get_hip_error_help", API_C10)),
+
+        ("NVSHMEM_TEAM_INVALID", ("ROCSHMEM_TEAM_INVALID", API_C10)),
+        ("NVSHMEM_TEAM_WORLD", ("ROCSHMEM_TEAM_WORLD", API_C10)),
+        ("NVSHMEM_CMP_EQ", ("ROCSHMEM_CMP_EQ", API_C10)),
+        ("NVSHMEM_SIGNAL_SET", ("ROCSHMEM_SIGNAL_SET", API_C10)),
+        ("NVSHMEMX_INIT_WITH_UNIQUEID", ("ROCSHMEM_INIT_WITH_UNIQUEID", API_C10)),
+
+        ("nvshmem_quiet", ("rocshmem_quiet", API_C10)),
+        ("nvshmem_malloc", ("rocshmem_malloc", API_C10)),
+        ("nvshmem_free", ("rocshmem_free", API_C10)),
+        ("nvshmem_ptr", ("rocshmem_ptr", API_C10)),
+        ("nvshmem_team_t", ("rocshmem_team_t", API_C10)),
+        ("nvshmem_team_split_strided", ("rocshmem_team_split_strided", API_C10)),
+        ("nvshmem_init", ("rocshmem_init", API_C10)),
+        ("nvshmem_team_n_pes", ("rocshmem_team_n_pes", API_C10)),
+        ("nvshmem_team_my_pe", ("rocshmem_team_my_pe", API_C10)),
+        ("nvshmem_team_translate_pe", ("rocshmem_team_translate_pe", API_C10)),
+
+        ("nvshmemx_uniqueid_t", ("rocshmem_uniqueid_t", API_C10)),
+        ("nvshmemx_get_uniqueid", ("rocshmem_get_uniqueid", API_C10)),
+        ("nvshmemx_init_attr_t", ("rocshmem_init_attr_t", API_C10)),
+        ("nvshmemx_set_attr_uniqueid_args", ("rocshmem_set_attr_uniqueid_args", API_C10)),
     ]
 )
 

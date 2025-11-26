@@ -13,6 +13,7 @@
 // Use torch's cub wrapper instead of CUDA's <cub/cub.cuh>, see #55292
 #include <ATen/cuda/cub.cuh>
 
+#ifndef USE_ROCM
 // NVSHMEM minimum SM arch
 #define _NVSHMEM_MIN_SM_ARCH 700
 
@@ -29,9 +30,14 @@
 // Only include host APIs. See nvshmem.h for details.
 #  define NVSHMEM_HOSTLIB_ONLY
 #endif  // Must be done before nvshmem.h is included
+#endif
 
+#ifdef USE_ROCM
+#include <rocshmem/rocshmem.hpp>
+#else
 #include <nvshmem.h>
 #include <nvshmemx.h>
+#endif
 
 namespace c10d::nvshmem_extension {
 
