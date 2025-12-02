@@ -1,0 +1,31 @@
+
+name: Assign Issue
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_url:
+        description: 'GitHub Issue URL'
+        required: true
+      assignee:
+        description: 'GitHub Username to assign'
+        required: true
+
+jobs:
+  assign:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write   # Required for assigning issues
+    env:
+      GH_TOKEN: ${{ secrets.PG_GITHUB_TOKEN }}
+    steps:
+      - name: Assign issue
+        run: |
+          if ! gh issue edit "${{ inputs.issue_url }}" --add-assignee "${{ inputs.assignee }}" 2>error.log; then
+            echo "Could not assign "${{ inputs.issue_url }}" to "${{ inputs.assignee }}"" >&2
+            cat error.log >&2
+            exit 1
+          else
+            echo "Assigned "${{ inputs.issue_url }}" to "${{ inputs.assignee }}""
+          fi
+
