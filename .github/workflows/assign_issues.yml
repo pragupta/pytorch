@@ -14,6 +14,8 @@ on:
 jobs:
   assign:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write   # Required for assigning issues
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
