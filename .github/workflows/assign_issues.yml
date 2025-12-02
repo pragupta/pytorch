@@ -21,11 +21,11 @@ jobs:
     steps:
       - name: Assign issue
         run: |
-          gh issue edit "${{ inputs.issue_url }}" --add-assignee "${{ inputs.assignee }}"
-          #if gh issue edit "${{ inputs.issue_url }}" --add-assignee "${{ inputs.assignee }}" 2>/dev/null; then
-          #  echo "  Assigned to "${{ inputs.assignee }}""
-          #  assigned=true
-          #else
-          #  echo "  ✗ Could not assign"
-          #fi
+          if ! gh issue edit "${{ inputs.issue_url }}" --add-assignee "${{ inputs.assignee }}" 2>error.log; then
+            echo "Could not assign "${{ inputs.issue_url }}" to "${{ inputs.assignee }}"" >&2
+            cat error.log >&2
+            exit 1
+          else
+            echo "Assigned "${{ inputs.issue_url }}" to "${{ inputs.assignee }}""
+          fi
 
