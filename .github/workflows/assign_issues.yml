@@ -17,7 +17,7 @@ jobs:
     permissions:
       issues: write   # Required for assigning issues
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.PG_GITHUB_TOKEN }}
     steps:
       - name: Assign issue
         run: |
