@@ -30,13 +30,14 @@
 // Only include host APIs. See nvshmem.h for details.
 #  define NVSHMEM_HOSTLIB_ONLY
 #endif  // Must be done before nvshmem.h is included
-#endif
+#endif // USE_ROCM
 
-#ifdef USE_ROCM
-#include <rocshmem/rocshmem.hpp>
-#else
+#if !defined(USE_ROCM)
 #include <nvshmem.h>
 #include <nvshmemx.h>
+#else
+#include <rocshmem/rocshmem.hpp>
+using namespace rocshmem;
 #endif
 
 namespace c10d::nvshmem_extension {
@@ -49,7 +50,6 @@ extern "C" void nvshmem_init() __attribute__((weak));
 // Check if NVSHMEM is available
 bool is_nvshmem_available() {
 #if defined(USE_ROCM)
-  //rocSHMEM is compiled in by default, it's not loaded in at runtime currently
   return true;
 #else
   // Runtime check
@@ -76,14 +76,16 @@ bool is_nvshmem_available() {
     }
   }
   return is_available == 1;
-#endif
+#endif // USE_ROCM
 }
 
 // Initializes the device state in CUmodule so that it’s able to perform NVSHMEM
 // operations.
 void nvshmemx_cumodule_init(uintptr_t module) {
+// This is not implemented for rocSHMEM and only required for triton
+// where rocSHMEM needs to be loaded based on the hipModule.
 #if !defined(USE_ROCM)
-  auto cumodule = reinterpret_cast<hipModule_t>(module);
+  auto cumodule = reinterpret_cast<CUmodule>(module);
   NVSHMEM_CHECK(
     ::nvshmemx_cumodule_init(cumodule),
     "nvshmemx_cumodule_init failed");
@@ -184,6 +186,21 @@ at::Tensor nvshmem_all_to_all(
   return out;
 }
 
+static int get_a2a_nblocks(size_t size, int world_size, bool intra_node) {
+  // Check user setting first
+  int num_blocks = c10d::symmetric_memory::getenv_nblocks();
+  if (num_blocks > 0) {  // set by user
+    return num_blocks;
+  }
+  // 16B per thread, 8 loops
+  constexpr size_t chunk_size = 16 * THREADS_PER_BLOCK * 8;
+  num_blocks = at::ceil_div(size, chunk_size);
+  // Allow kernel to target even number of blocks per peer
+  num_blocks = at::round_up(num_blocks, world_size);
+  const int max_blocks = intra_node ? 64 : 16;
+  return std::min(num_blocks, max_blocks);
+}
+
 // This is an exclusive prefix sum function that calculates read (or write) offsets for each peer.
 __device__ int64_t prefixSum(int64_t *odata, int64_t *idata, int n) {
   // Specialize BlockScan for a 1D block of threads, of type int64_t.
@@ -192,6 +209,7 @@ __device__ int64_t prefixSum(int64_t *odata, int64_t *idata, int n) {
   // - `at_cuda_detail::cub` is torch's cub wrapper, see #55292.
   using BlockScanT = ROCM_HIPCUB(at_cuda_detail::cub)::BlockScan<int64_t,
         THREADS_PER_BLOCK, ROCM_HIPCUB(at_cuda_detail::cub)::BLOCK_SCAN_WARP_SCANS>;
+  
   // Allocate shared memory for BlockScan
   __shared__ typename BlockScanT::TempStorage temp_storage;
 
@@ -212,6 +230,43 @@ __device__ int64_t prefixSum(int64_t *odata, int64_t *idata, int n) {
   return block_aggregate;
 }
 
+// This is an warp-scope, exclusive prefix sum. When called by a block of
+// threads, each warp will perform an independent prefix sum, concurrently.
+// Returns the sum of all elements in the warp.
+// `NUM_WARPS` is the number of warps participating the concurrent prefix sum.
+template <int NUM_WARPS>
+__device__ int64_t prefixSum_warp(int64_t *odata, int64_t *idata, int n) {
+  CUDA_KERNEL_ASSERT(n <= WARP_SIZE);
+
+  // Specialize WarpScan for type int
+  using WarpScan = ROCM_HIPCUB(at_cuda_detail::cub)::WarpScan<int64_t>;
+  // Allocate WarpScan shared memory for N warps
+  __shared__ typename WarpScan::TempStorage temp_storage[NUM_WARPS];
+
+  int warp_id = threadIdx.x / WARP_SIZE;
+  if (warp_id >= NUM_WARPS) {
+    return 0;
+  }
+
+  // Obtain input item for each thread
+  int tid = threadIdx.x % WARP_SIZE;
+  int64_t thread_data = (tid < n) ? idata[tid] : 0;
+
+  // Total sum of all elements in the warp
+  int64_t warp_aggregate;
+  // Compute the warp-wide exclusive prefix sum
+  WarpScan(temp_storage[warp_id]).ExclusiveSum(thread_data, thread_data, warp_aggregate);
+
+  // Store the result
+  odata[tid] = thread_data;
+  return warp_aggregate;
+}
+
+// This is for abstracting a thread-group-scope, exclusive prefix sum.
+// Since we use warp-scope prefix sum, the thread group size is limited to warp size.
+#define A2AV_TILE_SIZE WARP_SIZE
+
+#if !defined(USE_ROCM)
 // This kernel is used to exchange output splits and source offsets between peers.
 // `in_out_splits` is of size (3, npes) and contains:
 // - input splits (IN)
@@ -298,21 +353,6 @@ __global__ void allToAllV(void *send_data, void *recv_data, int64_t* out_splits_
 #endif
 }
 
-static int get_a2a_nblocks(size_t size, int world_size, bool intra_node) {
-  // Check user setting first
-  int num_blocks = c10d::symmetric_memory::getenv_nblocks();
-  if (num_blocks > 0) {  // set by user
-    return num_blocks;
-  }
-  // 16B per thread, 8 loops
-  constexpr size_t chunk_size = 16 * THREADS_PER_BLOCK * 8;
-  num_blocks = at::ceil_div(size, chunk_size);
-  // Allow kernel to target even number of blocks per peer
-  num_blocks = at::round_up(num_blocks, world_size);
-  const int max_blocks = intra_node ? 64 : 16;
-  return std::min(num_blocks, max_blocks);
-}
-
 void all_to_all_vdev(
     at::Tensor& input,
     at::Tensor& out,
@@ -348,11 +388,6 @@ void all_to_all_vdev(
 
   // Exchange output splits and source offsets
   // Use collective launch because kernel involves nvshmem barrier
-#if defined(USE_ROCM)
-  exchangeSplitAndOffset<<<dim3(1), dim3(THREADS_PER_BLOCK), 0, stream>>>(
-      in_splits_ptr, out_splits_offsets_ptr, team);
-  C10_HIP_KERNEL_LAUNCH_CHECK();
-#else
   void* args0[] = {
       &in_splits_ptr,
       &out_splits_offsets_ptr,
@@ -364,7 +399,7 @@ void all_to_all_vdev(
       args0,
       0,
       stream);
-#endif
+
   // CTA Tuning
   auto input_size = input.numel() * input.element_size();
   int num_blocks = get_a2a_nblocks(
@@ -376,12 +411,6 @@ void all_to_all_vdev(
   size_t stride_bytes = input.stride(0) * input.element_size();
 
   // All to all data exchange
-#if defined(USE_ROCM)
-  allToAllV<<<dim3(num_blocks), dim3(THREADS_PER_BLOCK), 0, stream>>>(
-      input_ptr, output_ptr, out_splits_offsets_ptr,
-      stride_bytes, team);
-  C10_HIP_KERNEL_LAUNCH_CHECK();
-#else
   void* args1[] = {
       &input_ptr,
       &output_ptr,
@@ -395,9 +424,154 @@ void all_to_all_vdev(
       args1,
       0,
       stream);
-#endif
 }
+#else
+// This kernel is used to exchange output splits and source offsets between peers.
+// `in_out_splits` is of size (3, npes) and contains:
+// - input splits (IN)
+// - output splits (OUT) and
+// - source offsets (OUT).
+__global__ void exchangeSplitAndOffset(int64_t* input_splits, int64_t* out_splits_offsets, rocshmem_team_t team, rocshmem_team_t team_world, int mype, int npes) {
+    CUDA_KERNEL_ASSERT(team != ROCSHMEM_TEAM_INVALID);
+    
+    __shared__ rocshmem_ctx_t ctx;
+    rocshmem_wg_team_create_ctx(team, 0, &ctx);
 
+    auto output_splits = out_splits_offsets;
+    auto source_offsets = out_splits_offsets + npes;
+    int tid = threadIdx.x;
+  
+    CUDA_KERNEL_ASSERT(npes <= THREADS_PER_BLOCK);
+    __shared__ int64_t peer_offsets[THREADS_PER_BLOCK];
+  
+    // Scan input splits to get the source offsets
+    prefixSum(peer_offsets, input_splits, npes);
+    __syncthreads();;
+  
+    // Use 1 block to do the exchange
+    if (tid < npes) {
+      // tid is peer index within team, but put calls require global rank
+      int peer_global = rocshmem_team_translate_pe(team, tid, team_world);
+      rocshmem_long_p(source_offsets + mype, peer_offsets[tid], peer_global);
+      rocshmem_long_p(output_splits + mype, input_splits[tid], peer_global);
+    }
+    // This barrier ensures that all remote PEs see the updated values
+    rocshmem_ctx_barrier(ctx, team);
+  }
+  
+  // This kernel is used to do the actual data exchange.
+  // `in_out_splits` has the same definition as in `exchangeSplitAndOffset`.
+  // `stride` is the stride at dim 0, unit in byte.
+  __global__ void allToAllV(void *send_data, void *recv_data, int64_t* out_splits_offsets, size_t stride, rocshmem_team_t team, rocshmem_team_t team_world, int mype, int npes) {
+    CUDA_KERNEL_ASSERT(team != ROCSHMEM_TEAM_INVALID);
+
+    auto output_splits = out_splits_offsets;
+    auto source_offsets = out_splits_offsets + npes;
+    int bid = blockIdx.x;
+    int tid = threadIdx.x;
+    int blocks_per_peer = max(gridDim.x / npes, 1);
+  
+    // Calculate the output offsets
+    CUDA_KERNEL_ASSERT(npes <= THREADS_PER_BLOCK);
+    __shared__ int64_t peer_offsets[THREADS_PER_BLOCK];
+    prefixSum(peer_offsets, output_splits, npes);
+    __syncthreads();
+  
+    // Target a different peer based on bid
+    for (int i = bid / blocks_per_peer; i < npes; i += gridDim.x / blocks_per_peer) {
+      int peer = (mype + i) % npes;
+      auto peer_global = rocshmem_team_translate_pe(team, peer, team_world);
+      // Total amount from `peer`
+      auto peer_size = output_splits[peer] * stride;
+      // Amount to get from `peer` in this block
+      auto block_size = peer_size / blocks_per_peer;
+      // Being lazy here, we should handle the residual if the division is not exact
+      CUDA_KERNEL_ASSERT(block_size * blocks_per_peer == peer_size);
+      // This block's offset in the data from `peer`
+      auto block_offset = block_size * (bid % blocks_per_peer);
+      auto source_offset = source_offsets[peer] * stride + block_offset;
+      auto write_offset = peer_offsets[peer] * stride + block_offset;
+      rocshmem_getmem_nbi_wg(
+        (char*)recv_data + write_offset,
+        (char*)send_data + source_offset,
+        block_size,
+        peer_global);
+    }
+    // Write out the output offsets (to the scratchpad line)
+    if (bid == 0 && tid < npes) {
+      source_offsets[tid] = peer_offsets[tid];
+    }
+    // Make sure getmem_nbi calls finish
+    rocshmem_quiet();
+  }
+  
+  void all_to_all_vdev(
+      at::Tensor& input,
+      at::Tensor& out,
+      at::Tensor& in_splits,
+      at::Tensor& out_splits_offsets,
+      std::string group_name) {
+    /* Perform AllToAllv operation using NVSHMEM, with split information provided on device.
+     * Arguments:
+     *  - `input` is the input tensor
+     *  - `out` is the output tensor
+     *  - `in_splits` is a 1D tensor of size (npes), containing the input splits
+     *  - `out_splits_offsets` is a 2D tensor of size (2, npes). The rows are (in order):
+          output splits and output offsets.
+    */
+    auto input_hdl = c10d::symmetric_memory::rendezvous(input, group_name);
+    auto out_hdl = c10d::symmetric_memory::rendezvous(out, group_name);
+    auto in_splits_hdl = c10d::symmetric_memory::rendezvous(in_splits, group_name);
+    auto out_splits_offsets_hdl = c10d::symmetric_memory::rendezvous(out_splits_offsets, group_name);
+    int rank = input_hdl->get_rank();
+    int world_size = input_hdl->get_world_size();
+  
+    void* input_ptr = input.data_ptr();
+    void* output_ptr = out.mutable_data_ptr();
+    int64_t* in_splits_ptr = (int64_t*)(in_splits.const_data_ptr());
+    int64_t* out_splits_offsets_ptr = (int64_t*)(out_splits_offsets.mutable_data_ptr());
+  
+    TORCH_CHECK_EQ(input.device(), out.device());
+    auto device = input.device();
+    c10::hip::HIPGuardMasqueradingAsCUDA guard(device);
+    auto stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA(device.index());
+
+    // On ROCm, we need device-accessible team pointer
+    auto& team_manager = TeamManager::get(device);
+    auto [team_pool_host, team_pool_dev] = team_manager.get_n_teams(group_name, input_hdl->get_rank_to_global_rank(), 1);
+    auto team = team_pool_host[0];  // Host team for getting mype/npes
+    auto team_dev = *team_pool_dev;  // Device team pointer for kernel
+    int mype = rocshmem_team_my_pe(team);
+    int npes = rocshmem_team_n_pes(team);
+    // Get WORLD team - use empty group_name and empty ranks for WORLD
+    std::vector<int> world_ranks;
+    for (int i = 0; i < world_size; i++) world_ranks.push_back(i);
+    auto [world_pool_host, world_pool_dev] = team_manager.get_n_teams("WORLD", world_ranks, 1);
+    auto team_world_dev = *world_pool_dev;
+    // Exchange output splits and source offsets 
+    exchangeSplitAndOffset<<<dim3(1), dim3(THREADS_PER_BLOCK), 0, stream>>>(
+      in_splits_ptr, out_splits_offsets_ptr, team_dev, team_world_dev, mype, npes);
+    C10_HIP_KERNEL_LAUNCH_CHECK();
+    // Extra synchronization is required which nvshmemx_collective_launch provides
+    C10_HIP_CHECK(hipStreamSynchronize(stream));
+  
+    // CTA Tuning
+    auto input_size = input.numel() * input.element_size();
+    int num_blocks = get_a2a_nblocks(
+      input_size,
+      input_hdl->get_world_size(),
+      input_hdl->world_within_direct_access());
+  
+    // Stride at dim 0 (assuming input is contiguous, TODO)
+    size_t stride_bytes = input.stride(0) * input.element_size();
+  
+    // All to all data exchange
+    allToAllV<<<dim3(num_blocks), dim3(THREADS_PER_BLOCK), 0, stream>>>(
+      input_ptr, output_ptr, out_splits_offsets_ptr,
+      stride_bytes, team_dev, team_world_dev, mype, npes);
+    C10_HIP_KERNEL_LAUNCH_CHECK();
+  }
+#endif // USE_ROCM
 // Start of `all_to_all_vdev_2d`
 
 // `exchangeSplitAndOffset_2d` is used to exchange output splits and source
@@ -416,7 +590,7 @@ void all_to_all_vdev(
 /* Template parameters:
  * `HAS_IN_OFFSETS` is a boolean flag indicating whether `in_splits_offsets` has offsets (2nd row) or not.
 */
-
+/*
 template <bool HAS_IN_OFFSETS>
 __global__ void exchangeSplitAndOffset_2d(int64_t* in_splits_offsets, int64_t* out_splits_offsets, nvshmem_team_t team, int ne, size_t input_dim0, bool rank_is_row_in) {
 #ifndef _NVSHMEM_DEVICELIB_SUPPORTED
@@ -472,41 +646,6 @@ __global__ void exchangeSplitAndOffset_2d(int64_t* in_splits_offsets, int64_t* o
 #endif
 }
 
-// This is an warp-scope, exclusive prefix sum. When called by a block of
-// threads, each warp will perform an independent prefix sum, concurrently.
-// Returns the sum of all elements in the warp.
-// `NUM_WARPS` is the number of warps participating the concurrent prefix sum.
-template <int NUM_WARPS>
-__device__ int64_t prefixSum_warp(int64_t *odata, int64_t *idata, int n) {
-  CUDA_KERNEL_ASSERT(n <= WARP_SIZE);
-
-  // Specialize WarpScan for type int
-  using WarpScan = ROCM_HIPCUB(at_cuda_detail::cub)::WarpScan<int64_t>;
-  // Allocate WarpScan shared memory for N warps
-  __shared__ typename WarpScan::TempStorage temp_storage[NUM_WARPS];
-
-  int warp_id = threadIdx.x / WARP_SIZE;
-  if (warp_id >= NUM_WARPS) {
-    return 0;
-  }
-
-  // Obtain input item for each thread
-  int tid = threadIdx.x % WARP_SIZE;
-  int64_t thread_data = (tid < n) ? idata[tid] : 0;
-
-  // Total sum of all elements in the warp
-  int64_t warp_aggregate;
-  // Compute the warp-wide exclusive prefix sum
-  WarpScan(temp_storage[warp_id]).ExclusiveSum(thread_data, thread_data, warp_aggregate);
-
-  // Store the result
-  odata[tid] = thread_data;
-  return warp_aggregate;
-}
-
-// This is for abstracting a thread-group-scope, exclusive prefix sum.
-// Since we use warp-scope prefix sum, the thread group size is limited to warp size.
-#define A2AV_TILE_SIZE WARP_SIZE
 
 // This kernel is used to do the actual data exchange.
 // `in_out_splits` has the same definition as in `exchangeSplitAndOffset`.
@@ -613,6 +752,7 @@ void all_to_all_vdev_2d(
     at::Tensor& out_splits_offsets,
     std::string group_name,
     std::optional<int64_t> major_align) {
+    */
   /* Perform a 2D AllToAllv shuffle operation using NVSHMEM, with split information provided on device.
    * Arguments:
    *  - `input` is the input tensor
@@ -649,6 +789,7 @@ void all_to_all_vdev_2d(
       to `major_align` if it is 0. See
       https://github.com/pytorch/pytorch/issues/152668.
   */
+  /*
   auto input_hdl = c10d::symmetric_memory::rendezvous(input, group_name);
   auto out_hdl = c10d::symmetric_memory::rendezvous(out, group_name);
   auto in_splits_hdl = c10d::symmetric_memory::rendezvous(in_splits, group_name);
@@ -705,7 +846,21 @@ void all_to_all_vdev_2d(
   c10::cuda::CUDAGuard guard(device);
   auto stream = at::cuda::getCurrentCUDAStream();
   auto& team_manager = TeamManager::get(device);
+
+#if defined(USE_ROCM)
+  auto [team_pool_host, team_pool_dev] = team_manager.get_n_teams(group_name, input_hdl->get_rank_to_global_rank(), 1);
+  auto team = team_pool_host[0];
+  auto team_dev = *team_pool_dev;
+  int mype = rocshmem_team_my_pe(team);
+  int npes = rocshmem_team_n_pes(team);
+  // Get WORLD team
+  std::vector<int> world_ranks;
+  for (int i = 0; i < world_size; i++) world_ranks.push_back(i);
+  auto [world_pool_host, world_pool_dev] = team_manager.get_n_teams("WORLD", world_ranks, 1);
+  auto team_world_dev = *world_pool_dev;
+#else
   auto team = team_manager.get_team(group_name, input_hdl->get_rank_to_global_rank());
+#endif
 
   // Exchange output splits and source offsets
   auto input_dim0 = input.size(0);
@@ -713,9 +868,10 @@ void all_to_all_vdev_2d(
   // Use collective launch because kernel involves nvshmem barrier
 #if defined(USE_ROCM)
   exchangeSplitAndOffset_2d<false><<<dim3(1), dim3(THREADS_PER_BLOCK), 0, stream>>>(
-      in_splits_ptr, out_splits_offsets_ptr, team,
-      ne, input_dim0, rank_is_row_in);
+      in_splits_ptr, out_splits_offsets_ptr, team_dev, team_world_dev,
+      ne, input_dim0, rank_is_row_in, mype, npes);
   C10_HIP_KERNEL_LAUNCH_CHECK();
+  C10_HIP_CHECK(hipStreamSynchronize(stream));
 #else
   void* args0[] = {
       &in_splits_ptr,
@@ -732,10 +888,11 @@ void all_to_all_vdev_2d(
       0,
       stream);
 #endif
+
   // CTA Tuning
   // Naive for now, use 1 block per expert.
   // Total number of blocks is limited to 64 (intra-node) or 8 (inter-node).
-  int num_blocks = ::min(world_size * ne, world_size > 8 ? 8 : 64);
+  int num_blocks = std::min(world_size * ne, world_size > 8 ? 8 : 64);
 
   // Stride at dim 0
   size_t stride_bytes = input.stride(0) * input.element_size();
@@ -747,7 +904,7 @@ void all_to_all_vdev_2d(
       input_ptr, output_ptr,
       in_splits_ptr, out_splits_offsets_ptr,
       stride_bytes, world_size,
-      ne, major_align_val, rank_is_row_out, team);
+      ne, major_align_val, rank_is_row_out, team_dev, team_world_dev);
   C10_HIP_KERNEL_LAUNCH_CHECK();
 #else
   void* args1[] = {
@@ -777,6 +934,7 @@ void all_to_all_vdev_2d_offset(
     at::Tensor& in_splits_offsets,
     at::Tensor& out_splits_offsets,
     std::string group_name) {
+  */
   /* Perform a 2D AllToAllv shuffle operation, with input split and offset
    * information provided on device. The input offsets are not required to be
    * exact prefix sum of the input splits, i.e. paddings are allowed between the
@@ -802,6 +960,7 @@ void all_to_all_vdev_2d_offset(
         output offsets (OUT).
    *  - `group_name` is the name of the group to use for the collective operation.
   */
+  /*
   auto input_hdl = c10d::symmetric_memory::rendezvous(input, group_name);
   auto out_hdl = c10d::symmetric_memory::rendezvous(out, group_name);
   auto out_splits_offsets_hdl = c10d::symmetric_memory::rendezvous(out_splits_offsets, group_name);
@@ -852,25 +1011,35 @@ void all_to_all_vdev_2d_offset(
       in_splits_offsets.device() == device &&
       out_splits_offsets.device() == device,
       "all tensor arguments must be on the same CUDA device");
-  c10::cuda::CUDAGuard guard(device);
-  auto stream = at::cuda::getCurrentCUDAStream();
+  c10::hip::HIPGuardMasqueradingAsCUDA guard(device);
+  auto stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
   auto& team_manager = TeamManager::get(device);
+
+#if defined(USE_ROCM)
+  auto [team_pool_host, team_pool_dev] = team_manager.get_n_teams(group_name, input_hdl->get_rank_to_global_rank(), 1);
+  auto team = team_pool_host[0];
+  auto team_dev = *team_pool_dev;
+  int mype = rocshmem_team_my_pe(team);
+  int npes = rocshmem_team_n_pes(team);
+  // Get WORLD team
+  std::vector<int> world_ranks;
+  for (int i = 0; i < world_size; i++) world_ranks.push_back(i);
+  auto [world_pool_host, world_pool_dev] = team_manager.get_n_teams("WORLD", world_ranks, 1);
+  auto team_world_dev = *world_pool_dev;
+#else
   auto team = team_manager.get_team(group_name, input_hdl->get_rank_to_global_rank());
+#endif
 
   // Exchange output splits and source offsets
   auto input_dim0 = input.size(0);
   bool rank_is_row_in = false;
   // Use collective launch because kernel involves nvshmem barrier
 #if defined(USE_ROCM)
-  exchangeSplitAndOffset_2d<true><<<dim3(1), dim3(THREADS_PER_BLOCK), 0,
-    stream>>>(
-        in_splits_offsets_ptr,
-        out_splits_offsets_ptr,
-        team,
-        ne,
-        input_dim0,
-        rank_is_row_in);
+  exchangeSplitAndOffset_2d<true><<<dim3(1), dim3(THREADS_PER_BLOCK), 0, stream>>>(
+      in_splits_offsets_ptr, out_splits_offsets_ptr, team_dev, team_world_dev,
+      ne, input_dim0, rank_is_row_in, mype, npes);
   C10_HIP_KERNEL_LAUNCH_CHECK();
+  C10_HIP_CHECK(hipStreamSynchronize(stream));
 #else
   void* args0[] = {
       &in_splits_offsets_ptr,
@@ -887,10 +1056,11 @@ void all_to_all_vdev_2d_offset(
       0,
       stream);
 #endif
+
   // CTA Tuning
   // Naive for now, use 1 block per expert.
   // Total number of blocks is limited to 64 (intra-node) or 8 (inter-node).
-  int num_blocks = std::min(world_size * ne, world_size > 8 ? 8 : 64);
+  int num_blocks = ::min(world_size * ne, world_size > 8 ? 8 : 64);
 
   // Stride at dim 0
   size_t stride_bytes = input.stride(0) * input.element_size();
@@ -899,16 +1069,10 @@ void all_to_all_vdev_2d_offset(
   // All to all data exchange
 #if defined(USE_ROCM)
   allToAllV_2d<<<dim3(num_blocks), dim3(THREADS_PER_BLOCK), 0, stream>>>(
-      input_ptr,
-      output_ptr,
-      in_splits_offsets_ptr,
-      out_splits_offsets_ptr,
-      stride_bytes,
-      ne,
-      world_size,
-      major_align_val,
-      rank_is_row_out,
-      team);
+      input_ptr, output_ptr,
+      in_splits_offsets_ptr, out_splits_offsets_ptr,
+      stride_bytes, ne, world_size,
+      major_align_val, rank_is_row_out, team_dev, team_world_dev);
   C10_HIP_KERNEL_LAUNCH_CHECK();
 #else
   void* args1[] = {
@@ -932,8 +1096,10 @@ void all_to_all_vdev_2d_offset(
 #endif
 }
 
-/* Tiled Communication */
+*/
 #if !defined(USE_ROCM)
+/* Tiled Communication */
+
 using Shape2D = nvshmemx::shape<int64_t, int64_t>;
 using Stride2D = nvshmemx::stride<int64_t, int64_t>;
 
@@ -1135,7 +1301,8 @@ void multi_root_tile_reduce(
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   });
 }
-#endif
+#endif // USE_ROCM
+
 } // namespace c10d::nvshmem_extension
 
 
@@ -1152,5 +1319,5 @@ TORCH_LIBRARY_IMPL(symm_mem, CUDA, m) {
 #if !defined(USE_ROCM)
   m.impl("tile_reduce", c10d::nvshmem_extension::tile_reduce);
   m.impl("multi_root_tile_reduce", c10d::nvshmem_extension::multi_root_tile_reduce);
-#endif
+#endif // USE_ROCM
 }

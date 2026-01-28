@@ -9361,7 +9361,8 @@ PYTORCH_SPECIFIC_MAPPINGS = collections.OrderedDict(
         ("nvshmem_team_n_pes", ("rocshmem_team_n_pes", API_PYTORCH)),
         ("nvshmem_team_my_pe", ("rocshmem_team_my_pe", API_PYTORCH)),
         ("nvshmem_team_translate_pe", ("rocshmem_team_translate_pe", API_PYTORCH)),
-
+        ("nvshmem_int64_p", ("rocshmem_int64_p", API_PYTORCH)),
+        ("nvshmemx_getmem_nbi_block", ("rocshmem_getmem_nbi_wg", API_PYTORCH)),
         ("nvshmemx_uniqueid_t", ("rocshmem_uniqueid_t", API_PYTORCH)),
         ("nvshmemx_get_uniqueid", ("rocshmem_get_uniqueid", API_PYTORCH)),
         ("nvshmemx_init_attr", ("rocshmem_init_attr", API_PYTORCH)),
