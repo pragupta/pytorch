@@ -1476,20 +1476,46 @@ if(USE_ROCM)
       "${TORCH_SRC_DIR}/csrc/distributed/c10d/symm_mem/NVSHMEMSymmetricMemory.cu"
       "${TORCH_SRC_DIR}/csrc/distributed/c10d/symm_mem/CUDASymmetricMemoryUtils.cpp"
     )
-    # Set the compiler language to HIP to ensure hipcc is used for compiling
+    # Set the compiler language to HIP
     set_source_files_properties(${TORCH_ROCSHMEM_SRCS} PROPERTIES LANGUAGE HIP)
+
+    # Backup HIP flags and modify them for RDC
+    set(HIP_CLANG_FLAGS_BACKUP ${HIP_CLANG_FLAGS})
+    set(HIP_CXX_FLAGS_BACKUP ${HIP_CXX_FLAGS})
+    
+    # Remove -fno-gpu-rdc and add -fgpu-rdc 
+    list(REMOVE_ITEM HIP_CLANG_FLAGS "-fno-gpu-rdc")
+    list(APPEND HIP_CLANG_FLAGS "-fgpu-rdc")
+    string(REPLACE "-fno-gpu-rdc" "" HIP_CXX_FLAGS "${HIP_CXX_FLAGS}")
+    list(APPEND HIP_CXX_FLAGS "-fgpu-rdc")
+    
+    # Set HIP_LIBRARIES to include rocshmem for device linking stage
+    set(HIP_LIBRARIES_BACKUP ${HIP_LIBRARIES})
+    list(APPEND HIP_LIBRARIES /opt/rocm-7.1.1/lib/librocshmem.a)
+    message(STATUS "Building torch_rocshmem with RDC: HIP_CLANG_FLAGS=${HIP_CLANG_FLAGS}")
 
     hip_add_library(torch_rocshmem SHARED ${TORCH_ROCSHMEM_SRCS})
 
-    # Set the linker language to HIP to ensure hipcc is used for linking
-    set_target_properties(torch_rocshmem PROPERTIES LINKER_LANGUAGE HIP)
+    # Restore all HIP flags
+    set(HIP_CLANG_FLAGS ${HIP_CLANG_FLAGS_BACKUP})
+    set(HIP_CXX_FLAGS ${HIP_CXX_FLAGS_BACKUP})
+    set(HIP_LIBRARIES ${HIP_LIBRARIES_BACKUP})
+
+    # Set the linker language to HIP and add RDC flag for linking
+    set_target_properties(torch_rocshmem PROPERTIES 
+      LINKER_LANGUAGE HIP
+      LINK_FLAGS "-fgpu-rdc")
 
     target_compile_definitions(torch_hip PUBLIC USE_NVSHMEM)
     target_compile_definitions(torch_rocshmem PUBLIC USE_NVSHMEM)
-
-    target_compile_options(torch_rocshmem PRIVATE ${HIP_CXX_FLAGS})
-
-    target_link_libraries(torch_rocshmem PRIVATE roc::rocshmem)
+    
+    # Also link for host-side symbols with RDC flag
+    target_link_libraries(torch_rocshmem PRIVATE 
+      "-fgpu-rdc"
+      "-Wl,--whole-archive" 
+      /opt/rocm-7.1.1/lib/librocshmem.a 
+      "-Wl,--no-whole-archive")
+      
     target_link_libraries(torch_hip PRIVATE torch_rocshmem)
 
     install(TARGETS torch_rocshmem EXPORT Caffe2Targets DESTINATION
