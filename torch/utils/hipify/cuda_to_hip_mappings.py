@@ -3423,6 +3423,7 @@ PYTORCH_SPECIFIC_MAPPINGS = collections.OrderedDict([
     ("nvshmemx_getmem_on_stream", "rocshmem_getmem_on_stream"),
     ("nvshmemx_putmem_on_stream", "rocshmem_putmem_on_stream"),
     ("nvshmemx_putmem_signal_on_stream", "rocshmem_putmem_signal_on_stream"),
+    
 ])
 
 C10_MAPPINGS = collections.OrderedDict([
