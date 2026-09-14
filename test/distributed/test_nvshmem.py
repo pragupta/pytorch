@@ -478,6 +478,51 @@ class NVSHMEMAll2AllTest(MultiProcContinuousTest):
         )
         torch.testing.assert_close(out[:out_numel], expected)
 
+    @skip_if_lt_x_gpu(2)
+    def test_all_to_all_vdev_repeat(self) -> None:
+        # Reuse the SAME symmetric buffers across many calls with DIFFERENT splits
+        # each iteration (no host barrier between calls). Exercises the per-op
+        # completion barrier / cross-iteration correctness of the device-signaled,
+        # push-based all_to_all_vdev.
+        self._init_device()
+        group_name = dist.group.WORLD.group_name
+        dtype = torch.float
+        k = 16
+        max_inp_numel = k * self.world_size
+        max_out_numel = max_inp_numel * self.world_size  # worst case: one rank gets all
+
+        inp = symm_mem.empty(max_inp_numel, dtype=dtype, device=self.device)
+        out = symm_mem.empty(max_out_numel, dtype=dtype, device=self.device)
+        in_splits = symm_mem.empty(self.world_size, dtype=torch.int64, device=self.device)
+        out_splits_offsets = symm_mem.empty(
+            (2, self.world_size), dtype=torch.int64, device=self.device
+        )
+        for t in (inp, out, in_splits, out_splits_offsets):
+            symm_mem.rendezvous(t, group=group_name)
+
+        torch.manual_seed(1234 + self.rank)
+        for _ in range(30):
+            inp_splits = torch.randint(k, (self.world_size,), device=self.device)
+            out_splits = torch.zeros_like(inp_splits)
+            dist.all_to_all_single(out_splits, inp_splits)
+            inp_numel = inp_splits.sum().item()
+            out_numel = out_splits.sum().item()
+
+            inp.copy_(torch.randn(max_inp_numel, dtype=dtype, device=self.device))
+            in_splits.copy_(inp_splits)
+            out.fill_(-1)
+
+            torch.ops.symm_mem.all_to_all_vdev(
+                inp, out, in_splits, out_splits_offsets, group_name
+            )
+
+            expected = torch.empty(out_numel, dtype=dtype, device=self.device)
+            dist.all_to_all_single(
+                expected, inp[:inp_numel], out_splits.tolist(), inp_splits.tolist()
+            )
+            torch.testing.assert_close(out[:out_numel], expected)
+            torch.testing.assert_close(out_splits_offsets[0], out_splits)
+
     @parametrize("align", [1, 8, 16])  # `major_align` of output
     def test_all_to_all_vdev_2d(self, align: int) -> None:
         torch.manual_seed(42 + self.rank)
